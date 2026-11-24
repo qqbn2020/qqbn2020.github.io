@@ -3,12 +3,20 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { loadEnv } from './tmdb.js';
 
 loadEnv();
 
 const CONFIG = JSON.parse(fs.readFileSync(path.resolve('site.config.json'), 'utf8'));
 const RAW = JSON.parse(fs.readFileSync(path.resolve('data/raw.json'), 'utf8'));
+
+// content-hashed asset query so a cached styles.css can never serve stale CSS
+const ASSET_VER = (() => {
+  const h = crypto.createHash('sha1');
+  for (const f of ['styles.css', 'app.js']) h.update(fs.readFileSync(path.resolve('assets', f)));
+  return h.digest('hex').slice(0, 8);
+})();
 
 const SITE_URL = (process.env.SITE_URL || '').replace(/\/$/, '');
 const TODAY = RAW.window?.today || new Date().toISOString().slice(0, 10);
@@ -200,7 +208,7 @@ function layout({ title, desc, url, root = './', body, cls = '', jsonld = null, 
 <meta property="og:title" content="${esc(fullTitle)}">
 <meta property="og:description" content="${esc(desc)}">
 ${canonical}
-<link rel="stylesheet" href="${root}assets/styles.css">
+<link rel="stylesheet" href="${root}assets/styles.css?v=${ASSET_VER}">
 <link rel="alternate" type="application/rss+xml" title="${esc(CONFIG.name)}" href="${root}feed.xml">
 <link rel="icon" href="${root}assets/favicon.svg" type="image/svg+xml">
 ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld)}</script>` : ''}
@@ -235,7 +243,7 @@ ${body}
     </div>` : ''}
   </div>
 </footer>
-<script src="${root}assets/app.js" defer></script>
+<script src="${root}assets/app.js?v=${ASSET_VER}" defer></script>
 </body>
 </html>`;
 }
