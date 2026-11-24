@@ -20,6 +20,7 @@ const BACK = Number(process.env.WINDOW_BACK || CONFIG.window.back);
 const FORWARD = Number(process.env.WINDOW_FORWARD || CONFIG.window.forward);
 const MAX_SHOWS = Number(process.env.MAX_SHOWS || 280);
 const GENRE_BLOCK = new Set((CONFIG.genreBlock || []).map((g) => g.toLowerCase()));
+const DAILY_MAX = Number(process.env.DAILY_MAX_EPISODES || CONFIG.maxEpisodesPerWindow || 12);
 
 // TMDB network ids: broadcast + premium cable + streamers most relevant to a US calendar
 const US_NETWORKS = [2, 3, 6, 16, 19, 24, 30, 32, 34, 41, 43, 47, 49, 64, 65, 67, 71, 74, 76, 77, 88, 174, 213, 318, 453, 1024, 2739, 3353, 4330, 2552];
@@ -124,6 +125,8 @@ async function collectShows(candidates) {
         }
       }
       if (!episodes.length) continue;
+      // daily strips (game shows, daytime soaps) would flood the calendar
+      if (episodes.length > DAILY_MAX) continue;
 
       shows.push({
         id: detail.id,
