@@ -56,6 +56,23 @@ function relDay(iso) {
   return '';
 }
 
+// "S01E01–E08" for binge drops, "S01E01" for a single episode
+function epRangeLabel(eps) {
+  const pad = (n) => String(n).padStart(2, '0');
+  if (!eps.length) return '';
+  if (eps.length === 1) return `S${pad(eps[0].season)}E${pad(eps[0].episode)}`;
+  const first = eps[0];
+  const last = eps[eps.length - 1];
+  if (first.season !== last.season) {
+    return `S${pad(first.season)}E${pad(first.episode)}–S${pad(last.season)}E${pad(last.episode)}`;
+  }
+  const nums = eps.map((e) => e.episode);
+  const contiguous = nums.every((v, i) => i === 0 || v === nums[i - 1] + 1);
+  return contiguous
+    ? `S${pad(first.season)}E${pad(nums[0])}–E${pad(nums[nums.length - 1])}`
+    : `S${pad(first.season)}E${pad(nums[0])} 等${eps.length}集`;
+}
+
 function writePage(urlPath, html) {
   const file = urlPath.endsWith('/') ? path.join(DIST, urlPath, 'index.html') : path.join(DIST, urlPath);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -83,19 +100,27 @@ for (const show of RAW.shows || []) {
     episodes: [...show.episodes].sort((a, b) => a.air_date.localeCompare(b.air_date) || a.season - b.season || a.episode - b.episode),
     homepage: show.homepage,
   });
+  // one entry per episode group per date — binge drops collapse into one card
+  const byDateMap = new Map();
   for (const ep of show.episodes) {
+    if (!byDateMap.has(ep.air_date)) byDateMap.set(ep.air_date, []);
+    byDateMap.get(ep.air_date).push(ep);
+  }
+  for (const [date, eps] of byDateMap) {
+    const sorted = eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
     entries.push({
-      id: `${key}-s${ep.season}e${ep.episode}`,
+      id: `${key}-${date}`,
       type: 'tv', key,
       title: show.name,
-      sub: `S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}`,
-      epTitle: ep.name,
-      date: ep.air_date,
+      sub: epRangeLabel(sorted),
+      epTitle: sorted.length > 1 ? `本日上线 ${sorted.length} 集` : (sorted[0].name || ''),
+      date,
       platform,
       poster: show.poster,
-      overview: ep.overview || show.overview,
+      overview: sorted[0].overview || show.overview,
       url, vote: show.vote, genres: show.genres || [],
-      season: ep.season, episode: ep.episode, runtime: ep.runtime,
+      season: sorted[0].season, episode: sorted[0].episode,
+      count: sorted.length,
     });
   }
 }
