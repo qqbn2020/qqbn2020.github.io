@@ -1,5 +1,7 @@
 # 美剧日历 · tv-date
 
+线上地址：https://qqbn2020.github.io/tv-date/
+
 美国电视剧播出与电影上映的静态日历站，托管在 GitHub Pages，由 GitHub Actions 定时抓取 TMDB 并重新生成整站。
 
 ## 结构
@@ -42,10 +44,34 @@ node scripts/build.js
 
 ## 抓取策略
 
-- 剧集候选：`/tv/on_the_air`（未来 7 天）+ `/tv/airing_today` + `/tv/popular` + `/discover/tv`（按播出日期窗口，接口不支持时自动跳过）。
-- 逐剧取 `/tv/{id}` 与相关季度的 `/tv/{id}/season/{n}`，只保留窗口内（默认 今天-3 ~ 今天+42）且有播出日的集。
+- 剧集候选：`/tv/on_the_air`（未来 7 天）+ `/tv/airing_today` + `/tv/popular` + 按美国主要电视网（ABC/CBS/NBC/Fox/HBO/Netflix/Apple TV+/Hulu 等 30 个 network id）逐个 `discover/tv`，按播出日期窗口过滤。
+- 只保留美国出品、英语原声的剧集；脱口秀、新闻、肥皂剧、竞猜节目（`genreBlock`）直接排除；窗口内集数超过 `maxEpisodesPerWindow`（默认 12）的每日栏目剧也排除。
+- 逐剧取 `/tv/{id}` 与相关季度的 `/tv/{id}/season/{n}`，先用 `next_episode_to_air` / `last_episode_to_air` 预筛，只保留窗口内（默认 今天-3 ~ 今天+42）有播出日的集；同一天同一部剧的多集合并成一张卡片（`S01E01–E08`）。
 - 电影：`/discover/movie`（region=US，release_type=2|3）+ `/movie/now_playing` + `/movie/upcoming`。
-- 请求串行、约 4 req/s，命中 429 按 `Retry-After` 退避；响应缓存 6 小时，CI 用 `actions/cache` 复用。
+- 请求串行、约 4 req/s，命中 429 按 `Retry-After` 退避；响应缓存 2 小时，CI 用 `actions/cache` 复用，避免同一时段重复抓取。
+
+## 中文优先
+
+- 抓取时统一带 `language=zh-CN`，TMDB 有简体中文译名就显示中文标题、简介、集名与类型名；无译名时 TMDB 自动回落英文原名。
+- 中文标题为主标题，英文原名在详情页与索引行里以次级样式保留（`titleAlt`），搜索框中英都能命中。
+- URL slug 固定用英文原名生成，避免中文标题变化导致链接失效。
+- 类型屏蔽（`genreBlock`）改按 TMDB genre id 判断：类型名会本地化，按名字比对会失效。
+
+## 公众号推广
+
+`site.config.json` 的 `promo` 段控制文案、二维码与开关：
+
+```json
+"promo": { "enabled": true, "label": "微信公众号", "slogan": "...", "hint": "...", "qr": "assets/wechat-qr.jpg" }
+```
+
+二维码图片放 `assets/`，构建时随资源一起拷进 `dist/`。首页与订阅页在正文末尾有一整块推广卡，其余页面页脚右下角有一张紧凑卡（同一页只出现一次）。
+
+## 可调参数
+
+- `site.config.json`：`window.back/forward`（窗口天数）、`genreBlock`（排除类型）、`maxEpisodesPerWindow`（栏目剧阈值）、`feeds.rssItemDays`。
+- 环境变量：`MAX_SHOWS`（候选上限，默认 280）、`TMDB_GAP_MS`（请求间隔）、`TMDB_CACHE_TTL_HOURS`。
+- 仓库变量 `SITE_URL`：换成自定义域名时设置，用于 canonical / sitemap / 订阅链接。
 
 ## 许可与声明
 

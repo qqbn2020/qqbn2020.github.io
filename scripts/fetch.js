@@ -20,6 +20,8 @@ const BACK = Number(process.env.WINDOW_BACK || CONFIG.window.back);
 const FORWARD = Number(process.env.WINDOW_FORWARD || CONFIG.window.forward);
 const MAX_SHOWS = Number(process.env.MAX_SHOWS || 280);
 const GENRE_BLOCK = new Set((CONFIG.genreBlock || []).map((g) => g.toLowerCase()));
+// genre names are localized now, so blocking has to work off TMDB genre ids resolved from the English list
+let GENRE_BLOCK_IDS = new Set();
 const DAILY_MAX = Number(process.env.DAILY_MAX_EPISODES || CONFIG.maxEpisodesPerWindow || 12);
 
 // TMDB network ids: broadcast + premium cable + streamers most relevant to a US calendar
@@ -91,11 +93,16 @@ async function collectShows(candidates) {
   for (const [i, c] of candidates.entries()) {
     try {
       const detail = await api(`/tv/${c.id}`);
+      // Chinese-first: fall back to the English synopsis only when the zh translation is empty
+      let overviewFallback = '';
+      if (!detail.overview && detail.original_language === 'en') {
+        try { overviewFallback = (await api(`/tv/${c.id}`, { language: 'en-US' })).overview || ''; } catch { /* optional */ }
+      }
       const countries = detail.origin_country || [];
       // US-produced, English-language scripted / reality only
       if (!countries.includes('US')) continue;
       if (detail.original_language !== 'en') continue;
-      if (GENRE_BLOCK.size && (detail.genres || []).some((g) => GENRE_BLOCK.has(g.name.toLowerCase()))) continue;
+      if (GENRE_BLOCK.size && (detail.genres || []).some((g) => (GENRE_BLOCK_IDS.size ? GENRE_BLOCK_IDS.has(g.id) : GENRE_BLOCK.has(g.name.toLowerCase())))) continue;
 
       // pre-filter with TMDB's episode pointers so we skip season requests for idle shows
       const hints = [detail.next_episode_to_air?.air_date, detail.last_episode_to_air?.air_date, detail.last_air_date]
@@ -132,7 +139,7 @@ async function collectShows(candidates) {
         id: detail.id,
         name: detail.name,
         original_name: detail.original_name,
-        overview: detail.overview || '',
+        overview: detail.overview || overviewFallback || '',
         poster: img(detail.poster_path, 'w342'),
         backdrop: img(detail.backdrop_path, 'w780'),
         first_air_date: detail.first_air_date || '',
@@ -254,6 +261,9 @@ async function main() {
     raw = demoRaw();
   } else {
     const genreTV = await api('/genre/tv/list');
+    const genreTVen = await api('/genre/tv/list', { language: 'en-US' });
+    GENRE_BLOCK_IDS = new Set((genreTVen.genres || []).filter((g) => GENRE_BLOCK.has(g.name.toLowerCase())).map((g) => g.id));
+    log('genre block ids: ' + [...GENRE_BLOCK_IDS].join(','));
     const genreMovie = await api('/genre/movie/list');
     const genres = {
       tv: Object.fromEntries((genreTV.genres || []).map((g) => [g.id, g.name])),

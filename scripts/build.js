@@ -89,10 +89,12 @@ const titles = new Map(); // key -> title object
 
 for (const show of RAW.shows || []) {
   const key = `tv-${show.id}`;
-  const url = `title/${key}-${slugify(show.name)}/`;
+  const title = show.name || show.original_name || '';
+  const titleAlt = show.original_name && show.original_name !== title ? show.original_name : '';
+  const url = `title/${key}-${slugify(show.original_name || show.name)}/`;
   const platform = show.networks?.[0]?.name || 'TV';
   titles.set(key, {
-    key, type: 'tv', id: show.id, title: show.name, original: show.original_name,
+    key, type: 'tv', id: show.id, title, original: show.original_name, titleAlt,
     poster: show.poster, backdrop: show.backdrop, overview: show.overview,
     vote: show.vote, genres: show.genres || [], platform,
     networks: (show.networks || []).map((n) => n.name),
@@ -111,7 +113,7 @@ for (const show of RAW.shows || []) {
     entries.push({
       id: `${key}-${date}`,
       type: 'tv', key,
-      title: show.name,
+      title, titleAlt,
       sub: epRangeLabel(sorted),
       epTitle: sorted.length > 1 ? `本日上线 ${sorted.length} 集` : (sorted[0].name || ''),
       date,
@@ -127,10 +129,12 @@ for (const show of RAW.shows || []) {
 
 for (const movie of RAW.movies || []) {
   const key = `mv-${movie.id}`;
-  const url = `title/${key}-${slugify(movie.title)}/`;
+  const title = movie.title || movie.original_title || '';
+  const titleAlt = movie.original_title && movie.original_title !== title ? movie.original_title : '';
+  const url = `title/${key}-${slugify(movie.original_title || movie.title)}/`;
   const genreNames = (movie.genre_ids || []).map((id) => RAW.genres?.movie?.[id]).filter(Boolean);
   titles.set(key, {
-    key, type: 'movie', id: movie.id, title: movie.title, original: movie.original_title,
+    key, type: 'movie', id: movie.id, title, original: movie.original_title, titleAlt,
     poster: movie.poster, backdrop: movie.backdrop, overview: movie.overview,
     vote: movie.vote, genres: genreNames, platform: '院线',
     status: '院线上映', first: movie.release_date, url,
@@ -139,7 +143,7 @@ for (const movie of RAW.movies || []) {
   });
   entries.push({
     id: key, type: 'movie', key,
-    title: movie.title, sub: '院线上映', epTitle: '',
+    title, titleAlt, sub: '院线上映', epTitle: '',
     date: movie.release_date, platform: '院线',
     poster: movie.poster, overview: movie.overview,
     url, vote: movie.vote, genres: genreNames,
@@ -161,17 +165,28 @@ const months = [...new Set(dates.map(monthOf))].sort();
 /* layout                                                              */
 /* ------------------------------------------------------------------ */
 const NAV = [
-  ['index.html', '首页'],
-  [`calendar/${monthOf(TODAY)}/`, '月历'],
-  ['tv/', '剧集'],
-  ['movie/', '电影'],
-  ['subscribe/', '订阅'],
-  ['about/', '关于'],
+  ['index.html', '首页', 'home'],
+  [`calendar/${monthOf(TODAY)}/`, '月历', 'calendar'],
+  ['tv/', '剧集', 'tv'],
+  ['movie/', '电影', 'movie'],
+  ['subscribe/', '订阅', 'subscribe'],
+  ['about/', '关于', 'about'],
 ];
 
-function layout({ title, desc, url, root = './', body, cls = '', jsonld = null }) {
+function activeKey(url = '') {
+  if (!url || url === 'index.html') return 'home';
+  if (url.startsWith('calendar') || url.startsWith('day')) return 'calendar';
+  if (url.startsWith('tv/')) return 'tv';
+  if (url.startsWith('movie/')) return 'movie';
+  if (url.startsWith('subscribe') || url.startsWith('ics')) return 'subscribe';
+  if (url.startsWith('about')) return 'about';
+  return '';
+}
+
+function layout({ title, desc, url, root = './', body, cls = '', jsonld = null, footPromo = true }) {
   const fullTitle = title ? `${title} · ${CONFIG.name}` : `${CONFIG.name} · ${CONFIG.tagline}`;
   const canonical = SITE_URL ? `<link rel="canonical" href="${SITE_URL}/${url}">` : '';
+  const active = activeKey(url);
   return `<!doctype html>
 <html lang="${CONFIG.lang}">
 <head>
@@ -195,7 +210,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld)}</script
   <div class="wrap head-inner">
     <a class="brand" href="${root}index.html"><span class="logo"></span>${esc(CONFIG.name)}</a>
     <nav class="nav">
-      ${NAV.map(([href, label]) => `<a href="${root}${href}">${label}</a>`).join('')}
+      ${NAV.map(([href, label, key]) => `<a href="${root}${href}"${key === active ? ' class="is-on"' : ''}>${label}</a>`).join('')}
     </nav>
   </div>
 </header>
@@ -203,10 +218,21 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld)}</script
 ${body}
 </main>
 <footer class="site-foot">
-  <div class="wrap">
-    <p class="foot-note">数据每小时级定时更新，最近构建：<time datetime="${esc(RAW.generated_at)}">${esc(RAW.generated_at.replace('T', ' ').slice(0, 16))} UTC</time>${RAW.demo ? ' · <strong>当前为演示数据</strong>' : ''}</p>
-    <p class="foot-note">日期均为美国当地播出 / 上映日期。美东晚间档换算为北京时间约在次日上午。</p>
-    <p class="foot-note">${esc(CONFIG.attribution.tmdbZh)} <a href="https://www.themoviedb.org/" rel="noopener nofollow" target="_blank">TMDB</a></p>
+  <div class="wrap foot-grid${footPromo && promoOn ? '' : ' solo'}">
+    <div class="foot-col">
+      <p class="foot-brand"><span class="logo"></span>${esc(CONFIG.name)}</p>
+      <p class="foot-note">数据定时更新，最近构建 <time datetime="${esc(RAW.generated_at)}">${esc(RAW.generated_at.replace('T', ' ').slice(0, 16))} UTC</time>${RAW.demo ? ' · <strong>演示数据</strong>' : ''}</p>
+      <p class="foot-note">日期均为美国当地播出 / 上映日期，美东晚间档约等于北京时间次日上午。</p>
+      <p class="foot-note">${esc(CONFIG.attribution.tmdbZh)} <a href="https://www.themoviedb.org/" rel="noopener nofollow" target="_blank">TMDB</a></p>
+    </div>
+    ${footPromo && promoOn ? `<div class="foot-col foot-promo">
+      <img class="qr" src="${root}${PROMO.qr}" alt="${esc(PROMO.alt || PROMO.label || '二维码')}" width="104" height="104" decoding="async">
+      <div class="promo-copy">
+        <p class="promo-eyebrow">${esc(PROMO.label || '微信公众号')}</p>
+        <p class="promo-line">${esc(PROMO.slogan || '')}</p>
+        <p class="promo-sub">${esc(PROMO.hint || '')}</p>
+      </div>
+    </div>` : ''}
   </div>
 </footer>
 <script src="${root}assets/app.js" defer></script>
@@ -231,7 +257,7 @@ function badge(e) {
 
 function card(e, root, { showDate = false } = {}) {
   const followed = false;
-  return `<article class="card" data-item data-type="${e.type}" data-key="${e.key}" data-title="${esc((e.title + ' ' + (e.epTitle || '')).toLowerCase())}">
+  return `<article class="card" data-item data-type="${e.type}" data-key="${e.key}" data-title="${esc((e.title + ' ' + (e.titleAlt || '') + ' ' + (e.epTitle || '')).toLowerCase())}">
   <a class="poster ${e.poster ? '' : 'empty'}" href="${root}${e.url}" aria-label="${esc(e.title)}">
     ${posterBlock(e, root)}
     ${badge(e)}
@@ -286,6 +312,21 @@ function compareLine() {
   return `<div class="empty-hint" hidden data-empty>没有匹配的条目，换个关键词或切换筛选。</div>`;
 }
 
+const PROMO = CONFIG.promo || {};
+const promoOn = PROMO.enabled !== false && !!PROMO.qr;
+
+function promoBand(root) {
+  if (!promoOn) return '';
+  return `<aside class="promo-band">
+  <div class="promo-qr"><img src="${root}${PROMO.qr}" alt="${esc(PROMO.alt || PROMO.label || '二维码')}" width="132" height="132" decoding="async"></div>
+  <div class="promo-body">
+    <p class="promo-eyebrow">${esc(PROMO.label || '微信公众号')}</p>
+    <p class="promo-line">${esc(PROMO.slogan || '')}</p>
+    <p class="promo-hint">${esc(PROMO.hint || '')}</p>
+  </div>
+</aside>`;
+}
+
 /* ------------------------------------------------------------------ */
 /* pages                                                               */
 /* ------------------------------------------------------------------ */
@@ -320,12 +361,13 @@ ${todayList.length ? daySection(TODAY, './') : `<section class="dayblock"><div c
 ${next7.filter((d) => d !== TODAY).map((d) => daySection(d, './')).join('') || '<p class="muted">暂无数据</p>'}
 
 <p class="more-link"><a href="calendar/${monthOf(TODAY)}/">查看完整月历 →</a> <a href="tv/">全部剧集 →</a> <a href="movie/">全部电影 →</a></p>
+${promoBand('./')}
 ${compareLine()}`;
 
   writePage('index.html', layout({
     title: '', url: '',
     desc: CONFIG.description,
-    body,
+    body, footPromo: false,
     jsonld: {
       '@context': 'https://schema.org', '@type': 'WebSite',
       name: CONFIG.name, description: CONFIG.description,
@@ -429,7 +471,7 @@ function buildTitles() {
       '@context': 'https://schema.org',
       '@type': isMovie ? 'Movie' : 'TVSeries',
       name: t.title,
-      ...(t.original && t.original !== t.title ? { alternateName: t.original } : {}),
+      ...(t.titleAlt ? { alternateName: t.titleAlt } : {}),
       ...(t.overview ? { description: t.overview.slice(0, 300) } : {}),
       ...(t.poster ? { image: t.poster } : {}),
       ...(isMovie ? { dateCreated: t.first } : { startDate: t.first }),
@@ -442,7 +484,7 @@ function buildTitles() {
   <div class="title-info">
     <p class="crumb"><a href="../../${isMovie ? 'movie' : 'tv'}/">${isMovie ? '电影' : '剧集'}</a> / ${esc(t.platform)}</p>
     <h1>${esc(t.title)}</h1>
-    ${t.original && t.original !== t.title ? `<p class="origin">${esc(t.original)}</p>` : ''}
+    ${t.titleAlt ? `<p class="origin">${esc(t.titleAlt)}</p>` : ''}
     <div class="meta big">
       ${t.vote ? `<span class="tag rate">★ ${Number(t.vote).toFixed(1)}</span>` : ''}
       ${t.genres.map((g) => `<span class="tag">${esc(g)}</span>`).join('')}
@@ -473,7 +515,7 @@ ${next ? `<p class="next-hint">${next.date >= TODAY ? '下一次：' : '最近�
 
     writePage(t.url, layout({
       title: `${t.title}${isMovie ? '' : ' 播出时间表'}`,
-      desc: `${t.title}（${t.original || t.title}）的${isMovie ? '上映日期' : '播出时间表'}，平台 ${t.platform}。${t.overview ? t.overview.slice(0, 120) : ''}`,
+      desc: `${t.title}${t.titleAlt ? '（' + t.titleAlt + '）' : ''}的${isMovie ? '上映日期' : '播出时间表'}，平台 ${t.platform}。${t.overview ? t.overview.slice(0, 120) : ''}`,
       url: t.url, root: '../../', body, jsonld, cls: 'page-title',
     }));
     pagesIndex.push({ url: t.url, lastmod: RAW.generated_at.slice(0, 10), priority: '0.7' });
@@ -502,10 +544,10 @@ ${filterBar()}
 <div class="list" data-filterable>
   ${list.map((t) => {
     const next = entries.find((e) => e.key === t.key && e.date >= TODAY);
-    return `<a class="row title-row" href="../${t.url}" data-item data-type="${t.type}" data-title="${esc((t.title + ' ' + (t.original || '')).toLowerCase())}">
+    return `<a class="row title-row" href="../${t.url}" data-item data-type="${t.type}" data-title="${esc((t.title + ' ' + (t.titleAlt || '')).toLowerCase())}">
       <span class="row-poster">${posterBlock(t, '../')}</span>
       <span class="row-main">
-        <span class="row-name">${esc(t.title)}${t.original && t.original !== t.title ? `<em>${esc(t.original)}</em>` : ''}</span>
+        <span class="row-name">${esc(t.title)}${t.titleAlt ? `<em>${esc(t.titleAlt)}</em>` : ''}</span>
         <span class="row-tags">${t.genres.slice(0, 3).map((g) => `<span class="tag">${esc(g)}</span>`).join('')}<span class="tag net">${esc(t.platform)}</span></span>
       </span>
       <span class="row-when">${next ? `${fmtShort(next.date)}<em>${weekdayOf(next.date)}</em>` : '<em>暂无排期</em>'}</span>
@@ -580,9 +622,10 @@ function buildSubscribe() {
 <div class="panel">
   <h2>RSS</h2>
   <p><a class="btn ghost" href="../feed.xml">订阅更新源</a></p>
-</div>`;
+</div>
+${promoBand('../')}`;
   writePage('subscribe/', layout({
-    title: '订阅', desc: '通过 iCal / RSS 订阅美国剧集与电影的播出日历。', url: 'subscribe/', root: '../', body,
+    title: '订阅', desc: '通过 iCal / RSS 订阅美国剧集与电影的播出日历。', url: 'subscribe/', root: '../', body, footPromo: false,
   }));
   pagesIndex.push({ url: 'subscribe/', lastmod: RAW.generated_at.slice(0, 10), priority: '0.6' });
 }
@@ -728,7 +771,7 @@ function buildSitemap() {
 /* ------------------------------------------------------------------ */
 function buildData() {
   const slim = entries.map((e) => ({
-    id: e.id, type: e.type, key: e.key, title: e.title, sub: e.sub, ep: e.epTitle,
+    id: e.id, type: e.type, key: e.key, title: e.title, title_alt: e.titleAlt || '', sub: e.sub, ep: e.epTitle,
     date: e.date, platform: e.platform, poster: e.poster || '', url: e.url,
   }));
   fs.mkdirSync(path.join(DIST, 'data'), { recursive: true });

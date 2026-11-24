@@ -11,6 +11,14 @@
     "icsFolder": "ics",
     "rssItemDays": 14
   },
+  "promo": {
+    "enabled": true,
+    "label": "微信公众号",
+    "slogan": "好戏即将登场，所有影视新消息，在这里抢先看。",
+    "hint": "微信扫码关注，开播前第一时间收到提醒",
+    "qr": "assets/wechat-qr.jpg",
+    "alt": "美剧日历 微信公众号二维码"
+  },
   "attribution": {
     "tmdb": "This product uses the TMDB API but is not endorsed or certified by TMDB.",
     "tmdbZh": "本页面数据与海报图片来自 TMDB，本产品未获 TMDB 认可，也未与 TMDB 存在认证关系。"

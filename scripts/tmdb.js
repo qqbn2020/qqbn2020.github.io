@@ -80,7 +80,7 @@ export async function api(endpoint, params = {}, opts = {}) {
     if (v === undefined || v === null || v === '') continue;
     search.set(k, String(v));
   }
-  search.set('language', params.language || process.env.TMDB_LANG || 'en-US');
+  search.set('language', params.language || process.env.TMDB_LANG || 'zh-CN');
   const qs = search.toString();
   const key = endpoint + '?' + qs;
 
