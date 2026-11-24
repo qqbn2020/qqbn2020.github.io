@@ -357,6 +357,7 @@ function buildMonths() {
       cells += `<div class="cell${isToday ? ' is-today' : ''}${list.length ? '' : ' is-empty'}">
   <a class="cell-d" href="../../day/${iso}/">${d}</a>
   <ul class="mini-list">${items}</ul>
+  ${list.length ? `<span class="cell-count">${list.length}</span>` : ''}
   ${list.length > 3 ? `<span class="more">+${list.length - 3}</span>` : ''}
 </div>`;
     }

@@ -115,7 +115,7 @@ async function collectShows(candidates) {
           episodes.push({
             season: ep.season_number,
             episode: ep.episode_number,
-            name: ep.name || '',
+            name: ep.name && ep.name.trim().toUpperCase() !== 'TBA' ? ep.name : '',
             air_date: ep.air_date,
             overview: ep.overview || '',
             still: img(ep.still_path, 'w300'),
