@@ -18,8 +18,11 @@ const DEMO = argv.includes('--demo');
 const CONFIG = JSON.parse(fs.readFileSync(path.resolve('site.config.json'), 'utf8'));
 const BACK = Number(process.env.WINDOW_BACK || CONFIG.window.back);
 const FORWARD = Number(process.env.WINDOW_FORWARD || CONFIG.window.forward);
-const MAX_SHOWS = Number(process.env.MAX_SHOWS || 200);
+const MAX_SHOWS = Number(process.env.MAX_SHOWS || 280);
 const GENRE_BLOCK = new Set((CONFIG.genreBlock || []).map((g) => g.toLowerCase()));
+
+// TMDB network ids: broadcast + premium cable + streamers most relevant to a US calendar
+const US_NETWORKS = [2, 3, 6, 16, 19, 24, 30, 32, 34, 41, 43, 47, 49, 64, 65, 67, 71, 74, 76, 77, 88, 174, 213, 318, 453, 1024, 2739, 3353, 4330, 2552];
 
 const TODAY = process.env.FETCH_TODAY || isoDate();
 const START = addDays(TODAY, -BACK);
@@ -57,23 +60,25 @@ async function tvCandidates() {
     catch (e) { log('popular p' + page, e.message); }
   }
 
-  // 3) discover by air-date window (best coverage when supported)
-  for (let page = 1; page <= 10; page++) {
-    try {
-      const r = await api('/discover/tv', {
-        with_origin_country: 'US',
-        with_original_language: 'en',
-        'air_date.gte': START,
-        'air_date.lte': END,
-        sort_by: 'popularity.desc',
-        page,
-      });
-      if (!r.total_results) break;
-      add(r.results);
-      if (page >= r.total_pages) break;
-    } catch (e) {
-      log('discover/tv unavailable, skipped:', e.message);
-      break;
+  // 3) discover by air-date window, scoped to major US networks
+  for (const network of US_NETWORKS) {
+    for (let page = 1; page <= 3; page++) {
+      try {
+        const r = await api('/discover/tv', {
+          with_networks: network,
+          with_origin_country: 'US',
+          with_original_language: 'en',
+          'air_date.gte': START,
+          'air_date.lte': END,
+          sort_by: 'popularity.desc',
+          page,
+        });
+        add(r.results);
+        if (page >= (r.total_pages || 1)) break;
+      } catch (e) {
+        log('discover/tv net' + network, e.message);
+        break;
+      }
     }
   }
 
@@ -91,10 +96,14 @@ async function collectShows(candidates) {
       if (detail.original_language !== 'en') continue;
       if (GENRE_BLOCK.size && (detail.genres || []).some((g) => GENRE_BLOCK.has(g.name.toLowerCase()))) continue;
 
+      // pre-filter with TMDB's episode pointers so we skip season requests for idle shows
+      const hints = [detail.next_episode_to_air?.air_date, detail.last_episode_to_air?.air_date, detail.last_air_date]
+        .filter(Boolean);
+      if (!hints.some(inWindow)) continue;
+
       const seasons = (detail.seasons || [])
         .filter((s) => s.season_number > 0 && s.air_date && s.air_date <= END)
         .sort((a, b) => b.season_number - a.season_number)
-        .filter((s) => s.air_date >= addDays(START, -200) || s.season_number >= (detail.number_of_seasons || 0))
         .slice(0, 2);
 
       const episodes = [];
