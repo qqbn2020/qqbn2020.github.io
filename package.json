@@ -1,0 +1,16 @@
+{
+  "name": "tv-date",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "US TV shows & movies release calendar, static site built for GitHub Pages",
+  "scripts": {
+    "fetch": "node scripts/fetch.js",
+    "build": "node scripts/build.js",
+    "demo": "node scripts/fetch.js --demo && node scripts/build.js",
+    "serve": "node scripts/serve.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

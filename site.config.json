@@ -1,0 +1,16 @@
+{
+  "name": "美剧日历",
+  "tagline": "美国剧集与电影播出日历",
+  "description": "美国电视剧与院线电影的上映日历，每日自动更新。含今日播出、每周时间表、单剧追更与日历订阅。",
+  "lang": "zh-CN",
+  "timezone": "Asia/Shanghai",
+  "window": { "back": 3, "forward": 42 },
+  "feeds": {
+    "icsFolder": "ics",
+    "rssItemDays": 14
+  },
+  "attribution": {
+    "tmdb": "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+    "tmdbZh": "本页面数据与海报图片来自 TMDB，本产品未获 TMDB 认可，也未与 TMDB 存在认证关系。"
+  }
+}

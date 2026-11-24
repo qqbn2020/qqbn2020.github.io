@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# secrets — never commit
+.env
+.env.local
+
+# build artifacts
+dist/
+data/
+.cache/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

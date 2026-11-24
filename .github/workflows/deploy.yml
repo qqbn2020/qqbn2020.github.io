@@ -1,0 +1,85 @@
+name: Build & Deploy
+
+on:
+  schedule:
+    # GitHub cron is UTC. 00:30 / 06:30 / 12:30 UTC = 08:30 / 14:30 / 20:30 Beijing.
+    - cron: '30 0 * * *'
+    - cron: '30 6 * * *'
+    - cron: '30 12 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'assets/**'
+      - 'site.config.json'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Restore TMDB response cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/tmdb
+          key: tmdb-cache-${{ github.run_id }}
+          restore-keys: |
+            tmdb-cache-
+
+      - name: Fetch schedule from TMDB
+        env:
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+          MAX_SHOWS: '140'
+        run: |
+          if [ -z "$TMDB_TOKEN" ]; then
+            echo "::error::missing secret TMDB_TOKEN"; exit 1
+          fi
+          node scripts/fetch.js || (echo "::warning::first attempt failed, retrying in 30s"; sleep 30; node scripts/fetch.js)
+
+      - name: Build static site
+        env:
+          SITE_URL: ${{ vars.SITE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+        run: node scripts/build.js
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Notify Lark on failure
+        if: failure()
+        env:
+          LARK_WEBHOOK: ${{ secrets.LARK_WEBHOOK }}
+        run: |
+          if [ -n "$LARK_WEBHOOK" ]; then
+            curl -s -X POST "$LARK_WEBHOOK" -H 'Content-Type: application/json' \
+              -d "{\"msg_type\":\"text\",\"content\":{\"text\":\"tv-date build failed: run ${{ github.run_id }}\"}}" > /dev/null
+          fi
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
