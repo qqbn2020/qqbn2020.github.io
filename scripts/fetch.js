@@ -18,7 +18,8 @@ const DEMO = argv.includes('--demo');
 const CONFIG = JSON.parse(fs.readFileSync(path.resolve('site.config.json'), 'utf8'));
 const BACK = Number(process.env.WINDOW_BACK || CONFIG.window.back);
 const FORWARD = Number(process.env.WINDOW_FORWARD || CONFIG.window.forward);
-const MAX_SHOWS = Number(process.env.MAX_SHOWS || 140);
+const MAX_SHOWS = Number(process.env.MAX_SHOWS || 200);
+const GENRE_BLOCK = new Set((CONFIG.genreBlock || []).map((g) => g.toLowerCase()));
 
 const TODAY = process.env.FETCH_TODAY || isoDate();
 const START = addDays(TODAY, -BACK);
@@ -57,7 +58,7 @@ async function tvCandidates() {
   }
 
   // 3) discover by air-date window (best coverage when supported)
-  for (let page = 1; page <= 6; page++) {
+  for (let page = 1; page <= 10; page++) {
     try {
       const r = await api('/discover/tv', {
         with_origin_country: 'US',
@@ -85,11 +86,10 @@ async function collectShows(candidates) {
     try {
       const detail = await api(`/tv/${c.id}`);
       const countries = detail.origin_country || [];
-      const lang = detail.original_language;
-      if (!countries.includes('US') && lang !== 'en') continue;
-      if (detail.status === 'Canceled' && !detail.in_production) {
-        // still fine if the window has episodes; we validate below
-      }
+      // US-produced, English-language scripted / reality only
+      if (!countries.includes('US')) continue;
+      if (detail.original_language !== 'en') continue;
+      if (GENRE_BLOCK.size && (detail.genres || []).some((g) => GENRE_BLOCK.has(g.name.toLowerCase()))) continue;
 
       const seasons = (detail.seasons || [])
         .filter((s) => s.season_number > 0 && s.air_date && s.air_date <= END)
@@ -153,7 +153,7 @@ async function collectMovies() {
     }
   };
 
-  for (let page = 1; page <= 5; page++) {
+  for (let page = 1; page <= 8; page++) {
     try {
       const r = await api('/discover/movie', {
         region: 'US',

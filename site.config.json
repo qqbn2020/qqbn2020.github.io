@@ -5,6 +5,7 @@
   "lang": "zh-CN",
   "timezone": "Asia/Shanghai",
   "window": { "back": 3, "forward": 42 },
+  "genreBlock": ["Talk", "News", "Soap", "Game Show"],
   "feeds": {
     "icsFolder": "ics",
     "rssItemDays": 14
