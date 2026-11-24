@@ -191,7 +191,7 @@ function activeKey(url = '') {
   return '';
 }
 
-function layout({ title, desc, url, root = './', body, cls = '', jsonld = null, footPromo = true }) {
+function layout({ title, desc, url, root = './', body, cls = '', jsonld = null }) {
   const fullTitle = title ? `${title} · ${CONFIG.name}` : `${CONFIG.name} · ${CONFIG.tagline}`;
   const canonical = SITE_URL ? `<link rel="canonical" href="${SITE_URL}/${url}">` : '';
   const active = activeKey(url);
@@ -202,7 +202,7 @@ function layout({ title, desc, url, root = './', body, cls = '', jsonld = null, 
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(fullTitle)}</title>
 <meta name="description" content="${esc(desc)}">
-<meta name="theme-color" content="#0b0d12">
+<meta name="theme-color" content="#f7f8fb">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="${esc(CONFIG.name)}">
 <meta property="og:title" content="${esc(fullTitle)}">
@@ -226,14 +226,14 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld)}</script
 ${body}
 </main>
 <footer class="site-foot">
-  <div class="wrap foot-grid${footPromo && promoOn ? '' : ' solo'}">
+  <div class="wrap foot-grid${promoOn ? '' : ' solo'}">
     <div class="foot-col">
       <p class="foot-brand"><span class="logo"></span>${esc(CONFIG.name)}</p>
       <p class="foot-note">数据定时更新，最近构建 <time datetime="${esc(RAW.generated_at)}">${esc(RAW.generated_at.replace('T', ' ').slice(0, 16))} UTC</time>${RAW.demo ? ' · <strong>演示数据</strong>' : ''}</p>
       <p class="foot-note">日期均为美国当地播出 / 上映日期，美东晚间档约等于北京时间次日上午。</p>
       <p class="foot-note">${esc(CONFIG.attribution.tmdbZh)} <a href="https://www.themoviedb.org/" rel="noopener nofollow" target="_blank">TMDB</a></p>
     </div>
-    ${footPromo && promoOn ? `<div class="foot-col foot-promo">
+    ${promoOn ? `<div class="foot-col foot-promo">
       <img class="qr" src="${root}${PROMO.qr}" alt="${esc(PROMO.alt || PROMO.label || '二维码')}" width="104" height="104" decoding="async">
       <div class="promo-copy">
         <p class="promo-eyebrow">${esc(PROMO.label || '微信公众号')}</p>
@@ -323,18 +323,6 @@ function compareLine() {
 const PROMO = CONFIG.promo || {};
 const promoOn = PROMO.enabled !== false && !!PROMO.qr;
 
-function promoBand(root) {
-  if (!promoOn) return '';
-  return `<aside class="promo-band">
-  <div class="promo-qr"><img src="${root}${PROMO.qr}" alt="${esc(PROMO.alt || PROMO.label || '二维码')}" width="132" height="132" decoding="async"></div>
-  <div class="promo-body">
-    <p class="promo-eyebrow">${esc(PROMO.label || '微信公众号')}</p>
-    <p class="promo-line">${esc(PROMO.slogan || '')}</p>
-    <p class="promo-hint">${esc(PROMO.hint || '')}</p>
-  </div>
-</aside>`;
-}
-
 /* ------------------------------------------------------------------ */
 /* pages                                                               */
 /* ------------------------------------------------------------------ */
@@ -369,13 +357,12 @@ ${todayList.length ? daySection(TODAY, './') : `<section class="dayblock"><div c
 ${next7.filter((d) => d !== TODAY).map((d) => daySection(d, './')).join('') || '<p class="muted">暂无数据</p>'}
 
 <p class="more-link"><a href="calendar/${monthOf(TODAY)}/">查看完整月历 →</a> <a href="tv/">全部剧集 →</a> <a href="movie/">全部电影 →</a></p>
-${promoBand('./')}
 ${compareLine()}`;
 
   writePage('index.html', layout({
     title: '', url: '',
     desc: CONFIG.description,
-    body, footPromo: false,
+    body,
     jsonld: {
       '@context': 'https://schema.org', '@type': 'WebSite',
       name: CONFIG.name, description: CONFIG.description,
@@ -630,10 +617,9 @@ function buildSubscribe() {
 <div class="panel">
   <h2>RSS</h2>
   <p><a class="btn ghost" href="../feed.xml">订阅更新源</a></p>
-</div>
-${promoBand('../')}`;
+</div>`;
   writePage('subscribe/', layout({
-    title: '订阅', desc: '通过 iCal / RSS 订阅美国剧集与电影的播出日历。', url: 'subscribe/', root: '../', body, footPromo: false,
+    title: '订阅', desc: '通过 iCal / RSS 订阅美国剧集与电影的播出日历。', url: 'subscribe/', root: '../', body,
   }));
   pagesIndex.push({ url: 'subscribe/', lastmod: RAW.generated_at.slice(0, 10), priority: '0.6' });
 }
