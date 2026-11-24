@@ -619,6 +619,23 @@ function icsDate(iso) { return iso.replace(/-/g, ''); }
 function icsEscape(s = '') {
   return String(s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
 }
+
+// RFC 5545 §3.1 — fold content lines longer than 75 octets
+function foldLine(line) {
+  if (Buffer.byteLength(line, 'utf8') <= 75) return line;
+  const out = [];
+  let cur = '';
+  for (const ch of line) {
+    if (Buffer.byteLength(cur + ch, 'utf8') > 75) {
+      out.push(cur);
+      cur = ' ' + ch;
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out.join('\r\n');
+}
 const DTSTAMP = new Date(RAW.generated_at).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
 function icsEvent(e, host) {
@@ -632,7 +649,7 @@ function icsEvent(e, host) {
     `DESCRIPTION:${icsEscape(`${e.platform}｜${e.overview || ''}`.slice(0, 300))}`,
     `CATEGORIES:${e.type === 'movie' ? '电影' : '剧集'}`,
     'END:VEVENT',
-  ].join('\r\n');
+  ].map(foldLine).join('\r\n');
 }
 
 function buildIcs() {
@@ -646,7 +663,7 @@ function buildIcs() {
     `X-WR-CALNAME:${icsEscape(name)}`,
     'X-WR-TIMEZONE:Asia/Shanghai',
     'REFRESH-INTERVAL;VALUE=DURATION:PT12H',
-  ].join('\r\n');
+  ].map(foldLine).join('\r\n');
 
   const writeIcs = (rel, content) => {
     const file = path.join(DIST, rel);
