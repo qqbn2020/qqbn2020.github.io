@@ -527,13 +527,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .title-hero { grid-template-columns: 9rem 1fr; gap: 1.25rem; }
   .cards { grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
 }
-@media (max-width: 40rem) {
-  .cell { min-height: 3.6rem; }
-  .mini-list { display: none; }
-  .cell-count { display: inline-block; }
-  .cell.is-empty { min-height: 3.6rem; }
-  .more { display: none; }
-}
 @media (max-width: 48rem) {
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero { padding-top: 2rem; }
@@ -543,11 +536,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .search input { width: 100%; max-width: none; }
   .nav { gap: 0.9rem; }
   .foot-grid { grid-template-columns: 100%; gap: 1.25rem; }
-}
-@media (max-width: 30rem) {
-  .head-inner { gap: 0.9rem; }
-  .nav { gap: 0.7rem; font-size: 0.8125rem; }
-  .brand { font-size: 1rem; }
+  /* below this the month cells are too narrow for entry text: show a count badge instead */
+  .cell { min-height: 3.6rem; }
+  .cell.is-empty { min-height: 3.6rem; }
+  .mini-list { display: none; }
+  .cell-count { display: inline-block; }
+  .more { display: none; }
 }
 @media (max-width: 40rem) {
   .promo-band { gap: 1rem; padding: 1.1rem 1.15rem; align-items: flex-start; }
@@ -556,6 +550,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .promo-hint { font-size: 0.75rem; }
 }
 @media (max-width: 30rem) {
+  .head-inner { gap: 0.9rem; }
+  .nav { gap: 0.7rem; font-size: 0.8125rem; }
+  .brand { font-size: 1rem; }
   .cards { grid-template-columns: 1fr; }
   .row-when { display: none; }
 }
