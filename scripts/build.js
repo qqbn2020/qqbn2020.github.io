@@ -192,12 +192,16 @@ function activeKey(url = '') {
   return '';
 }
 
-const OG_FALLBACK = (entries.find((e) => e.poster && e.type === 'tv') || entries.find((e) => e.poster) || {}).poster || '';
+const ogDefault = () => {
+  const all = [...titles.values()];
+  const t = all.find((x) => x.localPoster && x.type === 'tv') || all.find((x) => x.localPoster);
+  return t ? absImg(t) : '';
+};
 
 function layout({ title, desc, url, root = './', body, cls = '', jsonld = null, image = '', type = 'website' }) {
   const fullTitle = title ? `${title} · ${CONFIG.name}` : `${CONFIG.name} · ${CONFIG.tagline}`;
   const canonical = SITE_URL ? `<link rel="canonical" href="${SITE_URL}/${url}">` : '';
-  const ogImg = image || OG_FALLBACK;
+  const ogImg = image || ogDefault();
   const active = activeKey(url);
   return `<!doctype html>
 <html lang="${CONFIG.lang}">
@@ -264,8 +268,9 @@ ${body}
 /* components                                                          */
 /* ------------------------------------------------------------------ */
 function posterBlock(item, root, size = '') {
-  if (item.poster) {
-    return `<img class="poster-img" src="${esc(item.poster)}" alt="${esc(item.title)} 海报" loading="lazy" decoding="async">`;
+  const src = item.localPoster ? `${root}${item.localPoster}` : item.poster;
+  if (src) {
+    return `<img class="poster-img" src="${esc(src)}" alt="${esc(item.title)} 海报" loading="lazy" decoding="async">`;
   }
   return `<div class="poster-img ph" aria-hidden="true"><span>${esc((item.title || '?').slice(0, 1))}</span></div>`;
 }
@@ -315,6 +320,50 @@ function titleCard(t, root) {
   </div>
 </article>`;
 }
+
+/* ------------------------------------------------------------------ */
+/* poster mirroring                                                    */
+/* ------------------------------------------------------------------ */
+// TMDB's image CDN is unreliable from mainland China, so posters are copied
+// into dist/img during the build and served from the same origin as the site.
+// Downloads are best effort: if one fails the page falls back to the remote URL.
+const IMG_DIR = path.join(DIST, 'img');
+
+async function mirrorPosters() {
+  fs.mkdirSync(IMG_DIR, { recursive: true });
+  const list = [...titles.values()].filter((t) => t.poster);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < list.length) {
+      const t = list[cursor++];
+      const file = path.join(IMG_DIR, `${t.key}.jpg`);
+      try {
+        if (fs.existsSync(file) && fs.statSync(file).size > 2000) {
+          t.localPoster = `img/${t.key}.jpg`;
+          continue;
+        }
+        const res = await fetch(t.poster, { signal: AbortSignal.timeout(20000) });
+        if (!res.ok) continue;
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length < 2000) continue;
+        fs.writeFileSync(file, buf);
+        t.localPoster = `img/${t.key}.jpg`;
+      } catch { /* keep the remote URL */ }
+    }
+  }
+
+  await Promise.all(Array.from({ length: 8 }, worker));
+
+  let mirrored = 0;
+  for (const e of entries) {
+    const t = titles.get(e.key);
+    if (t?.localPoster) { e.localPoster = t.localPoster; mirrored++; }
+  }
+  console.log(`posters mirrored: ${mirrored}/${entries.length}`);
+}
+
+const absImg = (t) => (t?.localPoster && SITE_URL ? `${SITE_URL}/${t.localPoster}` : (t?.poster || ''));
 
 function daySection(date, root, { showDate = true } = {}) {
   const list = byDate.get(date) || [];
@@ -500,7 +549,7 @@ function buildTitles() {
       name: t.title,
       ...(t.titleAlt ? { alternateName: t.titleAlt } : {}),
       ...(t.overview ? { description: t.overview.slice(0, 300) } : {}),
-      ...(t.poster ? { image: t.poster } : {}),
+      ...(absImg(t) ? { image: absImg(t) } : {}),
       ...(isMovie ? { dateCreated: t.first } : { startDate: t.first }),
       ...(t.vote ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: Number(t.vote).toFixed(1), bestRating: '10', ratingCount: 1 } } : {}),
     }, {
@@ -551,7 +600,7 @@ ${next ? `<p class="next-hint">${next.date >= TODAY ? '下一次：' : '最近�
       title: `${t.title}${isMovie ? '' : ' 播出时间表'}`,
       desc: `${t.title}${t.titleAlt ? '（' + t.titleAlt + '）' : ''}的${isMovie ? '上映日期' : '播出时间表'}，平台 ${t.platform}。${t.overview ? t.overview.slice(0, 120) : ''}`,
       url: t.url, root: '../../', body, jsonld, cls: 'page-title',
-      image: t.poster || '', type: isMovie ? 'video.movie' : 'video.tv_show',
+      image: absImg(t), type: isMovie ? 'video.movie' : 'video.tv_show',
     }));
     pagesIndex.push({ url: t.url, lastmod: RAW.generated_at.slice(0, 10), priority: '0.7' });
   }
@@ -812,7 +861,7 @@ function buildSitemap() {
 function buildData() {
   const slim = entries.map((e) => ({
     id: e.id, type: e.type, key: e.key, title: e.title, title_alt: e.titleAlt || '', sub: e.sub, ep: e.epTitle,
-    date: e.date, platform: e.platform, poster: e.poster || '', url: e.url,
+    date: e.date, platform: e.platform, poster: e.localPoster || e.poster || '', url: e.url,
   }));
   fs.mkdirSync(path.join(DIST, 'data'), { recursive: true });
   fs.writeFileSync(path.join(DIST, 'data/entries.json'), JSON.stringify({
@@ -849,6 +898,7 @@ fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 
 copyAssets();
+await mirrorPosters();
 buildIndex();
 buildMonths();
 buildDays();

@@ -273,7 +273,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: 0.05rem 0.35rem;
   white-space: nowrap;
 }
-.tag.net { color: var(--tv); border-color: rgba(110, 168, 254, 0.28); }
+.tag.net { color: var(--tv); border-color: rgba(110, 168, 254, 0.28); max-width: 7.5rem; overflow: hidden; text-overflow: ellipsis; }
 .tag.rate { color: var(--accent); border-color: rgba(217, 119, 6, 0.2); }
 .tag.date { color: var(--ok); border-color: rgba(89, 209, 154, 0.25); }
 .star {
