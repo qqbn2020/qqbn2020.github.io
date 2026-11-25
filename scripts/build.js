@@ -251,11 +251,8 @@ ${body}
       <p class="foot-note">${esc(CONFIG.attribution.tmdbZh)} <a href="https://www.themoviedb.org/" rel="noopener nofollow" target="_blank">TMDB</a></p>
     </div>
     ${promoOn ? `<div class="foot-col foot-promo">
-      <img class="qr" src="${root}${PROMO.qr}" alt="${esc(PROMO.alt || PROMO.label || '二维码')}" width="104" height="104" decoding="async">
-      <div class="promo-copy">
-        <p class="promo-eyebrow">${esc(PROMO.label || '微信公众号')}</p>
-        <p class="promo-line">${esc(PROMO.slogan || '')}</p>
-      </div>
+      <img class="qr" src="${root}${PROMO.qr}" alt="${esc(PROMO.alt || '二维码')}" width="224" height="224" decoding="async" loading="lazy">
+      <p class="promo-line">${esc(PROMO.slogan || '')}</p>
     </div>` : ''}
   </div>
 </footer>
