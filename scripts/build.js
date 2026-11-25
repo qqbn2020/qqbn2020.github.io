@@ -252,7 +252,6 @@ ${body}
     </div>
     ${promoOn ? `<div class="foot-col foot-promo">
       <img class="qr" src="${root}${PROMO.qr}" alt="${esc(PROMO.alt || '二维码')}" width="224" height="224" decoding="async" loading="lazy">
-      <p class="promo-line">${esc(PROMO.slogan || '')}</p>
     </div>` : ''}
   </div>
 </footer>
