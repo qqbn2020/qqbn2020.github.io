@@ -2,7 +2,7 @@
 
 线上地址：https://qqbn2020.github.io/tv-date/
 
-美国电视剧播出与电影上映的静态日历站，托管在 GitHub Pages，由 GitHub Actions 定时抓取 TMDB 并重新生成整站。
+剧集更新与电影上映的静态日历站，托管在 GitHub Pages，由 GitHub Actions 定时抓取 TMDB 并重新生成整站。
 
 ## 结构
 
@@ -38,7 +38,7 @@ node scripts/build.js
 2. 仓库 Settings → Secrets and variables → Actions，新增 `TMDB_TOKEN`（TMDB v4 Read Access Token）。
 3. Settings → Pages → Source 选择 **GitHub Actions**。
 4. Actions 页手动运行一次 `Build & Deploy`，确认抓取与部署成功。
-5. 之后每天 08:30 / 14:30 / 20:30（北京时间）自动更新。
+5. 之后每天 6 次（北京时间 00:15 / 04:15 / 08:15 / 12:15 / 16:15 / 20:15）自动更新。
 
 可选变量 `SITE_URL`（自定义域名时设置，用于 canonical / sitemap）；可选密钥 `LARK_WEBHOOK`（构建失败告警）。
 
