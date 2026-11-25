@@ -132,6 +132,17 @@ export function isoDate(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
+// YYYY-MM-DD of "today" in a given IANA timezone (the site is read from China)
+export function isoDateInTZ(tz = 'Asia/Shanghai', d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+
+export function stampInTZ(tz = 'Asia/Shanghai', d = new Date()) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(d).replace(/\//g, '-');
+}
+
 export function addDays(iso, delta) {
   const d = new Date(iso + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + delta);

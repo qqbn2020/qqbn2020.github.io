@@ -8,7 +8,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { api, loadEnv, img, isoDate, addDays, weekdayIndex, stats } from './tmdb.js';
+import { api, loadEnv, img, isoDate, isoDateInTZ, addDays, weekdayIndex, stats } from './tmdb.js';
 
 loadEnv();
 
@@ -27,7 +27,7 @@ const DAILY_MAX = Number(process.env.DAILY_MAX_EPISODES || CONFIG.maxEpisodesPer
 // TMDB network ids: broadcast + premium cable + streamers most relevant to a US calendar
 const US_NETWORKS = [2, 3, 6, 16, 19, 24, 30, 32, 34, 41, 43, 47, 49, 64, 65, 67, 71, 74, 76, 77, 88, 174, 213, 318, 453, 1024, 2739, 3353, 4330, 2552];
 
-const TODAY = process.env.FETCH_TODAY || isoDate();
+const TODAY = process.env.FETCH_TODAY || isoDateInTZ(CONFIG.timezone || 'Asia/Shanghai');
 const START = addDays(TODAY, -BACK);
 const END = addDays(TODAY, FORWARD);
 

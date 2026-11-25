@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { loadEnv } from './tmdb.js';
+import { loadEnv, isoDateInTZ, stampInTZ } from './tmdb.js';
 
 loadEnv();
 
@@ -19,7 +19,8 @@ const ASSET_VER = (() => {
 })();
 
 const SITE_URL = (process.env.SITE_URL || '').replace(/\/$/, '');
-const TODAY = RAW.window?.today || new Date().toISOString().slice(0, 10);
+const TZ = CONFIG.timezone || 'Asia/Shanghai';
+const TODAY = RAW.window?.today || isoDateInTZ(TZ);
 const DIST = path.resolve('dist');
 
 const WEEK_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -191,9 +192,12 @@ function activeKey(url = '') {
   return '';
 }
 
-function layout({ title, desc, url, root = './', body, cls = '', jsonld = null }) {
+const OG_FALLBACK = (entries.find((e) => e.poster && e.type === 'tv') || entries.find((e) => e.poster) || {}).poster || '';
+
+function layout({ title, desc, url, root = './', body, cls = '', jsonld = null, image = '', type = 'website' }) {
   const fullTitle = title ? `${title} · ${CONFIG.name}` : `${CONFIG.name} · ${CONFIG.tagline}`;
   const canonical = SITE_URL ? `<link rel="canonical" href="${SITE_URL}/${url}">` : '';
+  const ogImg = image || OG_FALLBACK;
   const active = activeKey(url);
   return `<!doctype html>
 <html lang="${CONFIG.lang}">
@@ -202,11 +206,20 @@ function layout({ title, desc, url, root = './', body, cls = '', jsonld = null }
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(fullTitle)}</title>
 <meta name="description" content="${esc(desc)}">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <meta name="theme-color" content="#f7f8fb">
-<meta property="og:type" content="website">
+<meta property="og:type" content="${type}">
 <meta property="og:site_name" content="${esc(CONFIG.name)}">
+<meta property="og:locale" content="zh_CN">
 <meta property="og:title" content="${esc(fullTitle)}">
 <meta property="og:description" content="${esc(desc)}">
+${SITE_URL ? `<meta property="og:url" content="${SITE_URL}/${url}">` : ''}
+${ogImg ? `<meta property="og:image" content="${esc(ogImg)}">
+<meta property="og:image:alt" content="${esc(fullTitle)}">` : ''}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(fullTitle)}">
+<meta name="twitter:description" content="${esc(desc)}">
+${ogImg ? `<meta name="twitter:image" content="${esc(ogImg)}">` : ''}
 ${canonical}
 <link rel="stylesheet" href="${root}assets/styles.css?v=${ASSET_VER}">
 <link rel="alternate" type="application/rss+xml" title="${esc(CONFIG.name)}" href="${root}feed.xml">
@@ -229,8 +242,8 @@ ${body}
   <div class="wrap foot-grid${promoOn ? '' : ' solo'}">
     <div class="foot-col">
       <p class="foot-brand"><span class="logo"></span>${esc(CONFIG.name)}</p>
-      <p class="foot-note">数据定时更新，最近构建 <time datetime="${esc(RAW.generated_at)}">${esc(RAW.generated_at.replace('T', ' ').slice(0, 16))} UTC</time>${RAW.demo ? ' · <strong>演示数据</strong>' : ''}</p>
-      <p class="foot-note">日期均为美国当地播出 / 上映日期，美东晚间档约等于北京时间次日上午。</p>
+      <p class="foot-note">数据定时更新，最近构建 <time datetime="${esc(RAW.generated_at)}">${esc(stampInTZ(TZ, new Date(RAW.generated_at)))}</time> 北京时间${RAW.demo ? ' · <strong>演示数据</strong>' : ''}</p>
+      <p class="foot-note">日期按作品播出 / 上映当地日期记录，晚间档通常对应北京时间次日上午。</p>
       <p class="foot-note">${esc(CONFIG.attribution.tmdbZh)} <a href="https://www.themoviedb.org/" rel="noopener nofollow" target="_blank">TMDB</a></p>
     </div>
     ${promoOn ? `<div class="foot-col foot-promo">
@@ -238,7 +251,6 @@ ${body}
       <div class="promo-copy">
         <p class="promo-eyebrow">${esc(PROMO.label || '微信公众号')}</p>
         <p class="promo-line">${esc(PROMO.slogan || '')}</p>
-        <p class="promo-sub">${esc(PROMO.hint || '')}</p>
       </div>
     </div>` : ''}
   </div>
@@ -283,6 +295,27 @@ function card(e, root, { showDate = false } = {}) {
 </article>`;
 }
 
+function titleCard(t, root) {
+  const next = entries.find((e) => e.key === t.key && e.date >= TODAY);
+  const line2 = t.titleAlt || t.genres.slice(0, 3).join(' · ');
+  return `<article class="card" data-item data-type="${t.type}" data-key="${t.key}" data-title="${esc((t.title + ' ' + (t.titleAlt || '')).toLowerCase())}">
+  <a class="poster${t.poster ? '' : ' empty'}" href="${root}${t.url}" aria-label="${esc(t.title)}">
+    ${posterBlock(t, root)}
+    ${t.type === 'movie' ? '<span class="badge movie">电影</span>' : ''}
+  </a>
+  <div class="card-body">
+    <h3><a href="${root}${t.url}">${esc(t.title)}</a></h3>
+    <p class="ep-title${line2 ? '' : ' muted'}">${esc(line2)}</p>
+    <div class="meta">
+      ${next ? `<span class="tag date">${fmtShort(next.date)} ${weekdayOf(next.date)}</span>` : '<span class="tag">暂无排期</span>'}
+      <span class="tag net">${esc(t.platform)}</span>
+      ${t.vote ? `<span class="tag rate">★ ${Number(t.vote).toFixed(1)}</span>` : ''}
+      <button class="star" data-follow="${t.key}" title="收藏" aria-label="收藏">☆</button>
+    </div>
+  </div>
+</article>`;
+}
+
 function daySection(date, root, { showDate = true } = {}) {
   const list = byDate.get(date) || [];
   if (!list.length) return '';
@@ -302,13 +335,12 @@ function daySection(date, root, { showDate = true } = {}) {
 </section>`;
 }
 
-function filterBar(root) {
+function filterBar({ types = ['tv', 'movie'] } = {}) {
+  const label = { all: '全部', tv: '剧集', movie: '电影', follow: '只看收藏' };
+  const keys = ['all', ...types, 'follow'];
   return `<div class="filters" data-filterable>
   <div class="chips" role="group" aria-label="筛选">
-    <button class="chip is-on" data-filter-value="all">全部</button>
-    <button class="chip" data-filter-value="tv">剧集</button>
-    <button class="chip" data-filter-value="movie">电影</button>
-    <button class="chip" data-filter-value="follow">只看收藏</button>
+    ${keys.map((k, i) => `<button class="chip${i === 0 ? ' is-on' : ''}" data-filter-value="${k}">${label[k]}</button>`).join('')}
   </div>
   <div class="search">
     <input type="search" placeholder="搜索剧名 / 电影 / 集名" data-search aria-label="搜索">
@@ -339,7 +371,7 @@ function buildIndex() {
 <section class="hero">
   <p class="kicker">${esc(CONFIG.tagline)}</p>
   <h1>今天看什么</h1>
-  <p class="hero-date">${fmtCN(TODAY)} · ${weekdayOf(TODAY)}</p>
+  <p class="hero-date">${fmtCN(TODAY)} · ${weekdayOf(TODAY)} · 北京时间</p>
   <div class="stats">
     <div class="stat"><strong>${tvToday}</strong><span>今日剧集</span></div>
     <div class="stat"><strong>${mvToday}</strong><span>今日上映</span></div>
@@ -349,7 +381,7 @@ function buildIndex() {
 </section>
 
 ${filterBar()}
-<div class="hint-row"><span class="hint">按美国当地日期排列，点击日期查看当天全部条目</span></div>
+<div class="hint-row"><span class="hint">按播出日期排列，点击日期查看当天全部条目</span></div>
 
 ${todayList.length ? daySection(TODAY, './') : `<section class="dayblock"><div class="dayhead"><span class="dnum">今天没有排期</span></div><p class="muted">今天没有抓取到播出条目，可以看接下来的排期。</p></section>`}
 
@@ -418,7 +450,7 @@ ${compareLine()}`;
 
     writePage(`calendar/${m}/`, layout({
       title: `${y}年${Number(mm)}月播出日历`,
-      desc: `${y}年${Number(mm)}月美国电视剧播出与电影上映日历，每日更新。`,
+      desc: `${y}年${Number(mm)}月剧集播出与电影上映日历，每日更新。`,
       url: `calendar/${m}/`, root: '../../', body, cls: 'page-calendar',
     }));
     pagesIndex.push({ url: `calendar/${m}/`, lastmod: RAW.generated_at.slice(0, 10), priority: '0.8' });
@@ -448,7 +480,7 @@ ${compareLine()}`;
 
     writePage(`day/${date}/`, layout({
       title: `${fmtShort(date)} ${weekdayOf(date)} 播出日历`,
-      desc: `${fmtCN(date)}美国剧集播出与电影上映安排，共 ${list.length} 条。`,
+      desc: `${fmtCN(date)}剧集播出与电影上映安排，共 ${list.length} 条。`,
       url: `day/${date}/`, root: '../../', body,
     }));
     pagesIndex.push({ url: `day/${date}/`, lastmod: RAW.generated_at.slice(0, 10), priority: '0.7' });
@@ -462,7 +494,7 @@ function buildTitles() {
     if (!list.length) continue;
     const next = list.find((e) => e.date >= TODAY) || list[list.length - 1];
     const isMovie = t.type === 'movie';
-    const jsonld = {
+    const jsonld = [{
       '@context': 'https://schema.org',
       '@type': isMovie ? 'Movie' : 'TVSeries',
       name: t.title,
@@ -471,7 +503,14 @@ function buildTitles() {
       ...(t.poster ? { image: t.poster } : {}),
       ...(isMovie ? { dateCreated: t.first } : { startDate: t.first }),
       ...(t.vote ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: Number(t.vote).toFixed(1), bestRating: '10', ratingCount: 1 } } : {}),
-    };
+    }, {
+      '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '首页', item: SITE_URL ? `${SITE_URL}/` : '/' },
+        { '@type': 'ListItem', position: 2, name: isMovie ? '电影' : '剧集', item: SITE_URL ? `${SITE_URL}/${isMovie ? 'movie' : 'tv'}/` : `/${isMovie ? 'movie' : 'tv'}/` },
+        { '@type': 'ListItem', position: 3, name: t.title },
+      ],
+    }];
 
     const body = `
 <section class="title-hero">
@@ -512,6 +551,7 @@ ${next ? `<p class="next-hint">${next.date >= TODAY ? '下一次：' : '最近�
       title: `${t.title}${isMovie ? '' : ' 播出时间表'}`,
       desc: `${t.title}${t.titleAlt ? '（' + t.titleAlt + '）' : ''}的${isMovie ? '上映日期' : '播出时间表'}，平台 ${t.platform}。${t.overview ? t.overview.slice(0, 120) : ''}`,
       url: t.url, root: '../../', body, jsonld, cls: 'page-title',
+      image: t.poster || '', type: isMovie ? 'video.movie' : 'video.tv_show',
     }));
     pagesIndex.push({ url: t.url, lastmod: RAW.generated_at.slice(0, 10), priority: '0.7' });
   }
@@ -524,38 +564,37 @@ function buildTypeIndex(type) {
     const nb = (entries.find((e) => e.key === b.key && e.date >= TODAY) || {}).date || '9999';
     return na.localeCompare(nb) || b.title.localeCompare(a.title);
   });
-  const groupByPlatform = new Map();
-  for (const t of list) {
-    if (!groupByPlatform.has(t.platform)) groupByPlatform.set(t.platform, []);
-    groupByPlatform.get(t.platform).push(t);
-  }
+
+  const heading = type === 'tv' ? '在播剧集' : '新上映电影';
+  const lead = type === 'tv'
+    ? `共 ${list.length} 部在播与即将开播的剧集，按下一次播出时间排列，点进任意一部可看完整时间表。`
+    : `共 ${list.length} 部正在上映与即将上映的电影，按上映时间排列，点进任意一部可看上映信息。`;
 
   const body = `
 <section class="page-head">
-  <h1>${type === 'tv' ? '在播美剧' : '新上映电影'}</h1>
-  <p class="muted">共 ${list.length} 部，按下一次${type === 'tv' ? '播出' : '上映'}时间排列</p>
+  <h1>${heading}</h1>
+  <p class="muted">${lead}</p>
 </section>
-${filterBar()}
-<div class="list" data-filterable>
-  ${list.map((t) => {
-    const next = entries.find((e) => e.key === t.key && e.date >= TODAY);
-    return `<a class="row title-row" href="../${t.url}" data-item data-type="${t.type}" data-title="${esc((t.title + ' ' + (t.titleAlt || '')).toLowerCase())}">
-      <span class="row-poster">${posterBlock(t, '../')}</span>
-      <span class="row-main">
-        <span class="row-name">${esc(t.title)}${t.titleAlt ? `<em>${esc(t.titleAlt)}</em>` : ''}</span>
-        <span class="row-tags">${t.genres.slice(0, 3).map((g) => `<span class="tag">${esc(g)}</span>`).join('')}<span class="tag net">${esc(t.platform)}</span></span>
-      </span>
-      <span class="row-when">${next ? `${fmtShort(next.date)}<em>${weekdayOf(next.date)}</em>` : '<em>暂无排期</em>'}</span>
-    </a>`;
-  }).join('')}
+${filterBar({ types: [type] })}
+<div class="cards" data-filterable>
+  ${list.map((t) => titleCard(t, '../')).join('')}
 </div>
 ${compareLine()}
 <p class="more-link"><a href="../calendar/${monthOf(TODAY)}/">按月查看 →</a></p>`;
 
   writePage(`${type}/`, layout({
-    title: type === 'tv' ? '在播美剧列表' : '上映电影列表',
-    desc: type === 'tv' ? '当前在播与即将播出的美国电视剧列表，含下次播出日期。' : '美国院线正在上映与即将上映的电影列表。',
+    title: type === 'tv' ? '在播剧集列表' : '上映电影列表',
+    desc: type === 'tv' ? '在播与即将开播的剧集列表，含每部剧的下次播出日期、平台与评分。' : '正在上映与即将上映的电影列表，含上映日期、发行与评分。',
     url: `${type}/`, root: '../', body, cls: 'page-index',
+    jsonld: {
+      '@context': 'https://schema.org', '@type': 'ItemList',
+      name: heading,
+      numberOfItems: list.length,
+      itemListElement: list.slice(0, 50).map((t, i) => ({
+        '@type': 'ListItem', position: i + 1, name: t.title,
+        url: SITE_URL ? `${SITE_URL}/${t.url}` : t.url,
+      })),
+    },
   }));
   pagesIndex.push({ url: `${type}/`, lastmod: RAW.generated_at.slice(0, 10), priority: '0.8' });
 }
@@ -586,7 +625,7 @@ function buildPlatforms() {
 </div>`;
     writePage(url, layout({
       title: `${platform} 播出日历`,
-      desc: `${platform} 旗下美国剧集与电影的上映排期。`,
+      desc: `${platform} 旗下剧集与电影的上映排期。`,
       url, root: '../../', body,
     }));
     pagesIndex.push({ url, lastmod: RAW.generated_at.slice(0, 10), priority: '0.5' });
@@ -619,7 +658,7 @@ function buildSubscribe() {
   <p><a class="btn ghost" href="../feed.xml">订阅更新源</a></p>
 </div>`;
   writePage('subscribe/', layout({
-    title: '订阅', desc: '通过 iCal / RSS 订阅美国剧集与电影的播出日历。', url: 'subscribe/', root: '../', body,
+    title: '订阅', desc: '通过 iCal / RSS 订阅剧集与电影的播出日历。', url: 'subscribe/', root: '../', body,
   }));
   pagesIndex.push({ url: 'subscribe/', lastmod: RAW.generated_at.slice(0, 10), priority: '0.6' });
 }
@@ -629,21 +668,23 @@ function buildAbout() {
   const body = `
 <section class="page-head">
   <h1>关于本站</h1>
-  <p class="muted">一个纯静态的美国剧集 / 电影播出日历。</p>
+  <p class="muted">一个纯静态的剧集 / 电影播出日历，只做排期索引。</p>
 </section>
 <div class="panel prose">
+  <h2>这个站做什么</h2>
+  <p>把每周的剧集更新与院线新片排期整理成一张日历：今天有什么可看、接下来一周排了什么、每部剧下一次更新在哪天。全部页面预渲染成静态文件，打开即读，不需要登录。</p>
   <h2>数据来源</h2>
-  <p>剧集与电影元数据、海报来自 <a href="https://www.themoviedb.org/" target="_blank" rel="noopener nofollow">TMDB</a>，按美国地区（US）抓取：剧集取每集的首播日期，电影取美国院线上映日期。</p>
+  <p>剧集与电影元数据、海报来自 <a href="https://www.themoviedb.org/" target="_blank" rel="noopener nofollow">TMDB</a>：剧集取每集首播日期，电影取院线上映日期。海报版权归各制片方与发行方所有。</p>
   <h2>更新方式</h2>
-  <p>GitHub Actions 定时任务每天运行 3 次（08:30 / 14:30 / 20:30 北京时间），拉取最新排期后重新生成整站；页面为预渲染静态文件，不依赖任何后端接口。</p>
+  <p>GitHub Actions 定时任务每天运行多次（北京时间 00:15 / 04:15 / 08:15 / 12:15 / 16:15 / 20:15），拉取最新排期后重新生成整站。</p>
   <h2>日期与时区</h2>
-  <p>所有日期均为美国当地日期。美剧多在美东晚间 20:00–22:00 播出，对应北京时间次日上午；电影按美国院线上映日。</p>
-  <h2>关于剧集条目</h2>
-  <p>只收录美国出品或英语原声的在播剧集，特别篇（Season 0）不收录；电影只收录美国院线发行（theatrical）条目，流媒体独播片不在日历中。</p>
+  <p>页面上的「今天」按北京时间计算；条目日期为作品播出 / 上映当地日期。晚间档（当地 20:00–22:00）通常对应北京时间次日上午。</p>
+  <h2>收录范围</h2>
+  <p>剧集收录在播与即将开播的常规剧集，特别篇（Season 0）不收录；电影收录院线上映条目，流媒体独播片不在日历内。脱口秀、新闻、肥皂剧与竞猜类节目默认排除。</p>
   <h2>标题语言</h2>
-  <p>标题、简介与集名优先显示 TMDB 的简体中文译名；TMDB 没有中文译名的作品回落显示英文原名，详情页会同时保留英文原名，方便对照。</p>
+  <p>标题、简介与集名优先显示 TMDB 的简体中文译名；没有中文译名的作品回落显示英文原名，详情页同时保留原名，方便对照。</p>
   <h2>版权与声明</h2>
-  <p>${esc(CONFIG.attribution.tmdbZh)} 海报版权归各制片方与发行方所有，本站仅做排期索引。</p>
+  <p>${esc(CONFIG.attribution.tmdbZh)}</p>
 </div>`;
   writePage('about/', layout({
     title: '关于', desc: '本站数据来源、更新方式与时区说明。', url: 'about/', root: '../', body, cls: 'page-about',
@@ -696,7 +737,7 @@ function buildIcs() {
   const head = (name) => [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//tv-date//US TV & Movie Calendar//CN',
+    'PRODID:-//tv-date//TV & Movie Calendar//CN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     `X-WR-CALNAME:${icsEscape(name)}`,
@@ -760,6 +801,9 @@ function buildSitemap() {
     .join('\n');
   fs.writeFileSync(path.join(DIST, 'sitemap.xml'),
     `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`);
+
+  fs.writeFileSync(path.join(DIST, 'robots.txt'),
+    `User-agent: *\nAllow: /\n${base ? `Sitemap: ${base}/sitemap.xml\n` : ''}`);
 }
 
 /* ------------------------------------------------------------------ */

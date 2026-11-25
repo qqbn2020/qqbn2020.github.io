@@ -2,10 +2,14 @@ name: Build & Deploy
 
 on:
   schedule:
-    # GitHub cron is UTC. 00:30 / 06:30 / 12:30 UTC = 08:30 / 14:30 / 20:30 Beijing.
-    - cron: '30 0 * * *'
-    - cron: '30 6 * * *'
-    - cron: '30 12 * * *'
+    # GitHub cron is UTC. 00:15/04:15/08:15/12:15/16:15/20:15 UTC = 08:15/12:15/16:15/20:15/00:15/04:15 Beijing.
+    # 16:15 UTC lands just after the Beijing midnight rollover, so "today" is never a day behind.
+    - cron: '15 0 * * *'
+    - cron: '15 4 * * *'
+    - cron: '15 8 * * *'
+    - cron: '15 12 * * *'
+    - cron: '15 16 * * *'
+    - cron: '15 20 * * *'
   workflow_dispatch:
   push:
     branches: [main]

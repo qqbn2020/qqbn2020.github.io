@@ -1,7 +1,7 @@
 {
   "name": "美剧日历",
-  "tagline": "美国剧集与电影播出日历",
-  "description": "美国电视剧与院线电影的上映日历，每日自动更新。含今日播出、每周时间表、单剧追更与日历订阅。",
+  "tagline": "剧集与电影播出日历",
+  "description": "剧集更新与院线新片的播出日历，每日自动更新。含今日可看、接下来一周排期、单片时间表与日历订阅。",
   "lang": "zh-CN",
   "timezone": "Asia/Shanghai",
   "window": { "back": 3, "forward": 42 },
@@ -15,9 +15,8 @@
     "enabled": true,
     "label": "微信公众号",
     "slogan": "好戏即将登场，所有影视新消息，在这里抢先看。",
-    "hint": "微信扫码关注，开播前第一时间收到提醒",
     "qr": "assets/wechat-qr.jpg",
-    "alt": "美剧日历 微信公众号二维码"
+    "alt": "微信公众号二维码"
   },
   "attribution": {
     "tmdb": "This product uses the TMDB API but is not endorsed or certified by TMDB.",

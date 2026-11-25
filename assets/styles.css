@@ -489,17 +489,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .foot-promo {
   display: flex;
   gap: 0.9rem;
-  align-items: center;
+  align-items: stretch;
   padding: 0.75rem 0.9rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
 }
-.foot-promo .qr { width: 5.5rem; height: 5.5rem; flex: none; border-radius: 0.4rem; background: #fff; padding: 0.2rem; }
-.promo-copy { min-width: 0; }
-.promo-copy .promo-eyebrow { margin-bottom: 0.25rem; font-size: 0.625rem; }
-.promo-copy .promo-line { font-size: 0.8125rem; font-weight: 600; line-height: 1.5; margin: 0 0 0.2rem; }
-.promo-copy .promo-sub { margin: 0; color: var(--muted); font-size: 0.6875rem; }
+.foot-promo .qr { width: 5.5rem; height: 5.5rem; flex: none; align-self: center; border-radius: 0.4rem; background: #fff; padding: 0.2rem; }
+.promo-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 0.4rem; }
+.promo-copy .promo-eyebrow { margin: 0; font-size: 0.625rem; }
+.promo-copy .promo-line { font-size: 0.8125rem; font-weight: 600; line-height: 1.5; margin: 0; }
 
 /* responsive ----------------------------------------------------- */
 @media (max-width: 60rem) {
@@ -523,7 +522,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .more { display: none; }
 }
 @media (max-width: 40rem) {
-  .foot-promo { align-items: flex-start; }
+  .foot-promo { align-items: center; }
+  .promo-copy { gap: 0.25rem; }
 }
 @media (max-width: 30rem) {
   .head-inner { gap: 0.9rem; }
