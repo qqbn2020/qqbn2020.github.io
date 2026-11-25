@@ -1,6 +1,6 @@
 # 美剧日历 · tv-date
 
-线上地址：https://qqbn2020.github.io/tv-date/
+线上地址：https://qqbn2020.github.io
 
 剧集更新与电影上映的静态日历站，托管在 GitHub Pages，由 GitHub Actions 定时抓取 TMDB 并重新生成整站。
 
