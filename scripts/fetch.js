@@ -35,6 +35,14 @@ const END = addDays(TODAY, FORWARD);
 
 const inWindow = (d) => !!d && d >= START && d <= END;
 
+// rejection diagnostics: why a candidate did not make it into raw.json
+// (written to data/dropped.json, deployed to dist/data/dropped.json for inspection)
+const dropped = [];
+const drop = (stage, id, name, extra = '') => {
+  dropped.push({ stage, id, name, extra });
+  log(`dropped [${stage}] ${name} (${id})${extra ? ' — ' + extra : ''}`);
+};
+
 function log(...a) { console.log(new Date().toISOString().slice(11, 19), ...a); }
 
 /* ------------------------------------------------------------------ */
@@ -91,7 +99,9 @@ async function tvCandidates() {
     }
   }
 
-  return [...seen.values()].sort((a, b) => b.popularity - a.popularity).slice(0, MAX_SHOWS);
+  const ranked = [...seen.values()].sort((a, b) => b.popularity - a.popularity);
+  for (const c of ranked.slice(MAX_SHOWS)) drop('candidate-cap', c.id, c.name || String(c.id));
+  return ranked.slice(0, MAX_SHOWS);
 }
 
 async function collectShows(candidates) {
@@ -106,9 +116,12 @@ async function collectShows(candidates) {
       }
       const countries = detail.origin_country || [];
       // US-produced, English-language scripted / reality only
-      if (!countries.includes('US')) continue;
-      if (detail.original_language !== 'en') continue;
-      if (GENRE_BLOCK.size && (detail.genres || []).some((g) => (GENRE_BLOCK_IDS.size ? GENRE_BLOCK_IDS.has(g.id) : GENRE_BLOCK.has(g.name.toLowerCase())))) continue;
+      if (!countries.includes('US')) { drop('origin-country', c.id, detail.name, countries.join(',')); continue; }
+      if (detail.original_language !== 'en') { drop('language', c.id, detail.name, detail.original_language); continue; }
+      if (GENRE_BLOCK.size && (detail.genres || []).some((g) => (GENRE_BLOCK_IDS.size ? GENRE_BLOCK_IDS.has(g.id) : GENRE_BLOCK.has(g.name.toLowerCase())))) {
+        drop('genre-block', c.id, detail.name, (detail.genres || []).map((g) => g.name).join(','));
+        continue;
+      }
 
       // pre-filter with TMDB's episode pointers so we skip season requests for idle shows.
       // Skip the check for shows discovered via a window-scoped query: TMDB's
@@ -117,7 +130,7 @@ async function collectShows(candidates) {
       if (!c.windowHit) {
         const hints = [detail.next_episode_to_air?.air_date, detail.last_episode_to_air?.air_date, detail.last_air_date]
           .filter(Boolean);
-        if (!hints.some(inWindow)) continue;
+        if (!hints.some(inWindow)) { drop('prefilter', c.id, detail.name, hints.join(',')); continue; }
       }
 
       // keep the seasons most likely to hold in-window episodes: the two newest aired
@@ -148,11 +161,11 @@ async function collectShows(candidates) {
           });
         }
       }
-      if (!episodes.length) continue;
+      if (!episodes.length) { drop('no-episodes', c.id, detail.name, `seasons checked: ${seasons.map((s) => s.season_number).join(',')}`); continue; }
       // daily strips (game shows, daytime soaps) would flood the calendar, but a
       // full-season binge drop is legit — compare distinct days, not episode count
       const occupiedDays = new Set(episodes.map((e) => e.air_date)).size;
-      if (occupiedDays > STRIP_MAX_DAYS) continue;
+      if (occupiedDays > STRIP_MAX_DAYS) { drop('strip-days', c.id, detail.name, `${occupiedDays} distinct days`); continue; }
 
       shows.push({
         id: detail.id,
@@ -172,7 +185,7 @@ async function collectShows(candidates) {
         episodes,
       });
     } catch (e) {
-      log(`show ${c.id} failed:`, e.message);
+      drop('error', c.id, c.name || String(c.id), e.message);
     }
     if ((i + 1) % 20 === 0) log(`shows ${i + 1}/${candidates.length} → kept ${shows.length}`);
   }
@@ -306,6 +319,15 @@ async function main() {
 
   fs.mkdirSync('data', { recursive: true });
   fs.writeFileSync('data/raw.json', JSON.stringify(raw));
+  if (!DEMO) {
+    fs.writeFileSync('data/dropped.json', JSON.stringify({
+      generated_at: raw.generated_at,
+      window: raw.window,
+      dropped_count: dropped.length,
+      dropped,
+    }, null, 2));
+    log(`dropped: ${dropped.length} candidates rejected (data/dropped.json)`);
+  }
 
   const epCount = raw.shows.reduce((n, s) => n + s.episodes.length, 0);
   log(`done → data/raw.json  shows=${raw.shows.length} episodes=${epCount} movies=${raw.movies.length}`);

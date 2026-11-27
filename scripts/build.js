@@ -940,6 +940,12 @@ build404();
 const INDEXNOW_KEY = CONFIG.indexNow?.key || '';
 if (INDEXNOW_KEY) fs.writeFileSync(path.join(DIST, `${INDEXNOW_KEY}.txt`), `${INDEXNOW_KEY}\n`);
 
+// fetch-time rejection diagnostics (public, tiny, useful for "why is X missing" questions)
+if (fs.existsSync(path.resolve('data/dropped.json'))) {
+  fs.mkdirSync(path.join(DIST, 'data'), { recursive: true });
+  fs.copyFileSync(path.resolve('data/dropped.json'), path.join(DIST, 'data/dropped.json'));
+}
+
 fs.writeFileSync(path.join(DIST, '.nojekyll'), '');
 
 console.log(`built ${entries.length} entries · ${titles.size} titles · ${months.length} months · ${pagesIndex.length} pages → dist/`);
