@@ -298,11 +298,17 @@ async function main() {
   if (DEMO) {
     raw = demoRaw();
   } else {
-    const genreTV = await api('/genre/tv/list');
-    const genreTVen = await api('/genre/tv/list', { language: 'en-US' });
+    // genre lists are metadata only — degrade gracefully instead of killing the run
+    // when TMDB throttles these first requests
+    const safe = async (endpoint, params = {}, label) => {
+      try { return await api(endpoint, params); }
+      catch (e) { log(`genre fetch failed (${label}), continuing without it:`, e.message); return { genres: [] }; }
+    };
+    const genreTV = await safe('/genre/tv/list', {}, 'tv zh');
+    const genreTVen = await safe('/genre/tv/list', { language: 'en-US' }, 'tv en');
     GENRE_BLOCK_IDS = new Set((genreTVen.genres || []).filter((g) => GENRE_BLOCK.has(g.name.toLowerCase())).map((g) => g.id));
     log('genre block ids: ' + [...GENRE_BLOCK_IDS].join(','));
-    const genreMovie = await api('/genre/movie/list');
+    const genreMovie = await safe('/genre/movie/list', {}, 'movie zh');
     const genres = {
       tv: Object.fromEntries((genreTV.genres || []).map((g) => [g.id, g.name])),
       movie: Object.fromEntries((genreMovie.genres || []).map((g) => [g.id, g.name])),
