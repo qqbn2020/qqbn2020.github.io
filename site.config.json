@@ -6,7 +6,10 @@
   "timezone": "Asia/Shanghai",
   "window": { "back": 3, "forward": 42 },
   "genreBlock": ["Talk", "News", "Soap", "Game Show"],
-  "maxEpisodesPerWindow": 12,
+  "maxDaysPerWindow": 18,
+  "indexNow": {
+    "key": "ff12f1e7558bd74c97aed556e6d30440"
+  },
   "feeds": {
     "icsFolder": "ics",
     "rssItemDays": 14

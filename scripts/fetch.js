@@ -22,7 +22,9 @@ const MAX_SHOWS = Number(process.env.MAX_SHOWS || 280);
 const GENRE_BLOCK = new Set((CONFIG.genreBlock || []).map((g) => g.toLowerCase()));
 // genre names are localized now, so blocking has to work off TMDB genre ids resolved from the English list
 let GENRE_BLOCK_IDS = new Set();
-const DAILY_MAX = Number(process.env.DAILY_MAX_EPISODES || CONFIG.maxEpisodesPerWindow || 12);
+// a daily strip occupies ~40+ distinct days inside the window; a binge drop of any size
+// lands on 1–3 days. Judge by occupied days, not raw episode count.
+const STRIP_MAX_DAYS = Number(process.env.STRIP_MAX_DAYS || CONFIG.maxDaysPerWindow || 18);
 
 // TMDB network ids: broadcast + premium cable + streamers most relevant to a US calendar
 const US_NETWORKS = [2, 3, 6, 16, 19, 24, 30, 32, 34, 41, 43, 47, 49, 64, 65, 67, 71, 74, 76, 77, 88, 174, 213, 318, 453, 1024, 2739, 3353, 4330, 2552];
@@ -40,10 +42,14 @@ function log(...a) { console.log(new Date().toISOString().slice(11, 19), ...a); 
 /* ------------------------------------------------------------------ */
 async function tvCandidates() {
   const seen = new Map();
-  const add = (list = []) => {
+  // windowHit: the candidate came from a discover query already scoped to the air-date
+  // window, so a missing/stale next_episode_to_air later must not veto it
+  const add = (list = [], windowHit = false) => {
     for (const s of list) {
       if (!s || !s.id) continue;
-      if (!seen.has(s.id)) seen.set(s.id, { id: s.id, popularity: s.popularity || 0, name: s.name });
+      const cur = seen.get(s.id);
+      if (!cur) seen.set(s.id, { id: s.id, popularity: s.popularity || 0, name: s.name, windowHit });
+      else if (windowHit) cur.windowHit = true;
     }
   };
 
@@ -76,7 +82,7 @@ async function tvCandidates() {
           sort_by: 'popularity.desc',
           page,
         });
-        add(r.results);
+        add(r.results, true);
         if (page >= (r.total_pages || 1)) break;
       } catch (e) {
         log('discover/tv net' + network, e.message);
@@ -104,15 +110,26 @@ async function collectShows(candidates) {
       if (detail.original_language !== 'en') continue;
       if (GENRE_BLOCK.size && (detail.genres || []).some((g) => (GENRE_BLOCK_IDS.size ? GENRE_BLOCK_IDS.has(g.id) : GENRE_BLOCK.has(g.name.toLowerCase())))) continue;
 
-      // pre-filter with TMDB's episode pointers so we skip season requests for idle shows
-      const hints = [detail.next_episode_to_air?.air_date, detail.last_episode_to_air?.air_date, detail.last_air_date]
-        .filter(Boolean);
-      if (!hints.some(inWindow)) continue;
+      // pre-filter with TMDB's episode pointers so we skip season requests for idle shows.
+      // Skip the check for shows discovered via a window-scoped query: TMDB's
+      // next_episode_to_air can lag behind reality, and discover already proved the show
+      // has an episode airing inside the window.
+      if (!c.windowHit) {
+        const hints = [detail.next_episode_to_air?.air_date, detail.last_episode_to_air?.air_date, detail.last_air_date]
+          .filter(Boolean);
+        if (!hints.some(inWindow)) continue;
+      }
 
+      // keep the seasons most likely to hold in-window episodes: the two newest aired
+      // seasons plus any season TMDB's episode pointers reference (covers upcoming
+      // seasons whose season-level air_date TMDB hasn't filled in yet)
+      const hintSeasons = new Set(
+        [detail.next_episode_to_air?.season_number, detail.last_episode_to_air?.season_number].filter((v) => v != null)
+      );
       const seasons = (detail.seasons || [])
-        .filter((s) => s.season_number > 0 && s.air_date && s.air_date <= END)
+        .filter((s) => s.season_number > 0 && ((s.air_date && s.air_date <= END) || hintSeasons.has(s.season_number)))
         .sort((a, b) => b.season_number - a.season_number)
-        .slice(0, 2);
+        .slice(0, 3);
 
       const episodes = [];
       for (const s of seasons) {
@@ -132,8 +149,10 @@ async function collectShows(candidates) {
         }
       }
       if (!episodes.length) continue;
-      // daily strips (game shows, daytime soaps) would flood the calendar
-      if (episodes.length > DAILY_MAX) continue;
+      // daily strips (game shows, daytime soaps) would flood the calendar, but a
+      // full-season binge drop is legit — compare distinct days, not episode count
+      const occupiedDays = new Set(episodes.map((e) => e.air_date)).size;
+      if (occupiedDays > STRIP_MAX_DAYS) continue;
 
       shows.push({
         id: detail.id,
@@ -184,7 +203,7 @@ async function collectMovies() {
         'vote_count.gte': 0,
       });
       add(r.results);
-      if (page >= r.total_pages) break;
+      if (page >= (r.total_pages || 1)) break;
     } catch (e) { log('discover/movie p' + page, e.message); }
   }
   for (const list of ['/movie/now_playing', '/movie/upcoming']) {

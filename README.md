@@ -10,6 +10,7 @@
 scripts/tmdb.js      TMDB v4 客户端（串行限速、429 退避、响应缓存）
 scripts/fetch.js     抓取 US 剧集剧集播出日期 + 美国院线电影 → data/raw.json
 scripts/build.js     归一化 + 预渲染整站 → dist/
+scripts/indexnow.js  部署后向 IndexNow（Bing 等）提交 sitemap URL
 scripts/serve.js     本地预览（dist 静态服务）
 assets/              styles.css / app.js / favicon.svg
 .github/workflows/   deploy.yml 定时构建部署；keepalive.yml 防 60 天停用
@@ -69,8 +70,9 @@ node scripts/build.js
 
 ## 可调参数
 
-- `site.config.json`：`window.back/forward`（窗口天数）、`genreBlock`（排除类型）、`maxEpisodesPerWindow`（栏目剧阈值）、`feeds.rssItemDays`。
-- 环境变量：`MAX_SHOWS`（候选上限，默认 280）、`TMDB_GAP_MS`（请求间隔）、`TMDB_CACHE_TTL_HOURS`。
+- `site.config.json`：`window.back/forward`（窗口天数）、`genreBlock`（排除类型）、`maxDaysPerWindow`（栏目剧阈值，按窗口内占用的不同日期数判断，全季 binge 上线不受影响）、`feeds.rssItemDays`。
+- 环境变量：`MAX_SHOWS`（候选上限，默认 280）、`STRIP_MAX_DAYS`（覆盖栏目剧阈值）、`TMDB_GAP_MS`（请求间隔）、`TMDB_CACHE_TTL_HOURS`。
+- IndexNow 收录推送：key 存在 `site.config.json` 的 `indexNow.key`，构建时在站点根目录生成 `<key>.txt` 验证文件，每日部署完成后 `scripts/indexnow.js` 自动提交 sitemap 全部 URL。
 - 仓库变量 `SITE_URL`：换成自定义域名时设置，用于 canonical / sitemap / 订阅链接。
 
 ## 许可与声明

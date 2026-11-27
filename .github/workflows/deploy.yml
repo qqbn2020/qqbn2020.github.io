@@ -86,5 +86,19 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Submit IndexNow
+        # once a day (the 00:15 UTC run), plus every push and manual dispatch —
+        # the six daily rebuilds only shuffle dates, search engines don't need all six
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.schedule == '15 0 * * *'
+        env:
+          SITE_URL: ${{ vars.SITE_URL || (endsWith(github.event.repository.name, '.github.io') && format('https://{0}.github.io', github.repository_owner)) || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+        run: node scripts/indexnow.js

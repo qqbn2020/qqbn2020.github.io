@@ -468,8 +468,12 @@ function buildMonths() {
       const list = byDate.get(iso) || [];
       const isToday = iso === TODAY;
       const items = list.slice(0, 3).map((e) => `<li><a href="../../${e.url}" class="mini ${e.type}"><span class="mini-t">${esc(e.title)}</span><em>${esc(e.sub)}</em></a></li>`).join('');
+      // only days with entries have a day page — don't link empty days
+      const dayCell = list.length
+        ? `<a class="cell-d" href="../../day/${iso}/">${d}</a>`
+        : `<span class="cell-d">${d}</span>`;
       cells += `<div class="cell${isToday ? ' is-today' : ''}${list.length ? '' : ' is-empty'}">
-  <a class="cell-d" href="../../day/${iso}/">${d}</a>
+  ${dayCell}
   <ul class="mini-list">${items}</ul>
   ${list.length ? `<span class="cell-count">${list.length}</span>` : ''}
   ${list.length > 3 ? `<span class="more">+${list.length - 3}</span>` : ''}
@@ -508,6 +512,18 @@ function buildDays() {
     const list = byDate.get(date) || [];
     const prev = addDays(date, -1);
     const next = addDays(date, 1);
+    // adjacent days may have no day page (empty day inside/outside the window) —
+    // fall back to the month calendar (if that month has a page) or the homepage
+    const monthPageOf = (m) => (months.includes(m) ? `../../calendar/${m}/` : '../../');
+    const prevNav = byDate.has(prev)
+      ? `<a href="../../day/${prev}/">← 前一天</a>`
+      : `<a href="${monthPageOf(monthOf(prev))}">← 前一天</a>`;
+    const nextNav = byDate.has(next)
+      ? `<a href="../../day/${next}/">后一天 →</a>`
+      : `<a href="${monthPageOf(monthOf(next))}">后一天 →</a>`;
+    const homeNav = byDate.has(TODAY)
+      ? `<a href="../../day/${TODAY}/">回到今天</a>`
+      : `<a href="../../">回到今天</a>`;
     const body = `
 <section class="page-head">
   <p class="crumb"><a href="../../calendar/${monthOf(date)}/">月历</a> / ${fmtShort(date)}</p>
@@ -515,9 +531,9 @@ function buildDays() {
   <p class="muted">${list.length} 条播出 / 上映记录${relDay(date) ? ' · ' + relDay(date) : ''}</p>
 </section>
 <div class="day-nav">
-  <a href="../../day/${prev}/">← 前一天</a>
-  <a href="../../">回到今天</a>
-  <a href="../../day/${next}/">后一天 →</a>
+  ${prevNav}
+  ${homeNav}
+  ${nextNav}
 </div>
 ${filterBar()}
 <div class="cards day-cards">${list.map((e) => card(e, '../../', { showDate: false })).join('')}</div>
@@ -645,6 +661,16 @@ ${compareLine()}
 }
 
 // platform pages
+// slugify strips non-ASCII, so Chinese platform names ("院线") would all collapse to
+// "x" and overwrite each other — override known names, hash the rest
+const PLATFORM_SLUG_OVERRIDES = { '院线': 'cinema', '其他': 'other' };
+function platformSlug(name) {
+  if (PLATFORM_SLUG_OVERRIDES[name]) return PLATFORM_SLUG_OVERRIDES[name];
+  const s = slugify(name);
+  if (s && s !== 'x') return s;
+  return 'p' + crypto.createHash('sha1').update(String(name)).digest('hex').slice(0, 6);
+}
+
 function buildPlatforms() {
   const map = new Map();
   for (const e of entries) {
@@ -654,7 +680,7 @@ function buildPlatforms() {
   }
   for (const [platform, list] of map) {
     if (list.length < 3) continue;
-    const slug = slugify(platform);
+    const slug = platformSlug(platform);
     const url = `platform/${slug}/`;
     const body = `
 <section class="page-head">
@@ -909,6 +935,11 @@ buildFeed();
 buildSitemap();
 buildData();
 build404();
+
+// IndexNow ownership verification file — must live at https://<host>/<key>.txt
+const INDEXNOW_KEY = CONFIG.indexNow?.key || '';
+if (INDEXNOW_KEY) fs.writeFileSync(path.join(DIST, `${INDEXNOW_KEY}.txt`), `${INDEXNOW_KEY}\n`);
+
 fs.writeFileSync(path.join(DIST, '.nojekyll'), '');
 
 console.log(`built ${entries.length} entries · ${titles.size} titles · ${months.length} months · ${pagesIndex.length} pages → dist/`);
