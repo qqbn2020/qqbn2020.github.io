@@ -51,14 +51,14 @@ node scripts/build.js
 - 只保留美国出品、英语原声的剧集；脱口秀、新闻、肥皂剧、竞猜节目（`genreBlock`）直接排除；窗口内占用超过 `maxDaysPerWindow`（默认 18）个不同日期的每日栏目剧也排除（按占用日期数而非集数判断，全季 binge 上线不受影响）。
 - 逐剧取 `/tv/{id}` 与相关季度的 `/tv/{id}/season/{n}`。对非 discover 命中的剧，先用 `next_episode_to_air` / `last_episode_to_air` 预筛，避免为停播剧浪费请求；由窗口 discover 直接命中的剧**跳过预筛**——TMDB 的集指针常有滞后，不能以此否决已确认在窗口内播出的剧。季选择保留最近 3 季 + 集指针引用的季，并容忍新季缺失 `season.air_date`。窗口内（默认 今天-3 ~ 今天+42）的集保留，同一天同一部剧的多集合并成一张卡片（`S01E01–E08`）。
 - 电影：`/discover/movie`（region=US，release_type=2|3）+ `/movie/now_playing` + `/movie/upcoming`。
-- 请求串行、约 4 req/s，命中 429 按 `Retry-After` 退避；响应缓存 2 小时，CI 用 `actions/cache` 复用，避免同一时段重复抓取。
+- 请求串行、约 4 req/s（TVMaze 客户端约 2 req/s，各自独立限速），命中 429 按 `Retry-After` 退避；响应缓存默认 6 小时（CI 环境变量设为 2 小时），`actions/cache` 复用 `.cache/tmdb` 与 `.cache/tvmaze`，避免同一时段重复抓取。
 
 ## 运行诊断
 
 每次真实抓取都会生成 `data/dropped.json`（部署后可通过 `https://<域名>/data/dropped.json` 访问），记录每部剧被过滤的确切位置，用于排查"某剧为什么没收录"：
 
 - `candidates`：进入候选池的全部剧，含 `wh`（是否由播出窗口 discover 命中）与 `src`（候选来源列表，如 `discover:6631`、`discover:global`、`on_the_air`）。**剧不在这里 = 连候选都没进**，说明候选来源没覆盖到它。
-- `tvmaze`：TVMaze 补充源的运行报告——`matched`（与已收录剧对齐数）、`validated`（日期交叉验证一致数）、`conflicts`（两源日期不一致，TMDB 为准）、`added`（从 TVMaze 补进的集）、`respectedDrops`（有排期证据但被 TMDB 管线政策性排除的剧）、`unmatched`（未能反查到 TMDB id 的排期）。
+- `tvmaze`：TVMaze 补充源的运行报告——`matched`（与已收录剧对齐数）、`validated`（日期交叉验证一致数）、`conflicts`（两源日期不一致，TMDB 为准）、`added`（从 TVMaze 补进的集）、`respectedDrops`（有排期证据但被 TMDB 管线政策性排除的剧）、`stripRolledBack`（合并后触发栏目剧守卫回滚的剧）、`unmatched`（有排期但未进入 TMDB 管线的剧）、`find`（IMDb 反查计数：`found` / `notFound`）。
 - `dropped`：被过滤的剧，`stage` 取值：`candidate-cap`（热度/优先级截断）、`origin-country` / `language`（非美区非英语）、`genre-block`（类型排除）、`prefilter`（集指针预筛）、`no-episodes`（季数据为空）、`strip-days`（每日栏目剧）、`error`（请求失败）。
 
 排查口诀：先查 `candidates` 里有没有这部剧 → 有则看它被丢在哪个 `stage` → 没有则说明候选来源缺失（新增电视网 id 或调大 `GLOBAL_WINDOW_PAGES`）。抓取日志还会输出 `candidates by source` 各来源命中计数，可直接观察某条来源通道是否失效。
@@ -83,7 +83,7 @@ node scripts/build.js
 ## 可调参数
 
 - `site.config.json`：`window.back/forward`（窗口天数）、`genreBlock`（排除类型）、`maxDaysPerWindow`（栏目剧阈值，按窗口内占用的不同日期数判断，全季 binge 上线不受影响）、`feeds.rssItemDays`。
-- 环境变量：`MAX_SHOWS`（候选上限，默认 280）、`GLOBAL_WINDOW_PAGES`（全局窗口 discover 页数，默认 10）、`STRIP_MAX_DAYS`（覆盖栏目剧阈值）、`TMDB_GAP_MS`（请求间隔）、`TMDB_CACHE_TTL_HOURS`。
+- 环境变量：`MAX_SHOWS`（候选上限，默认 280）、`GLOBAL_WINDOW_PAGES`（全局窗口 discover 页数，默认 10）、`STRIP_MAX_DAYS`（覆盖栏目剧阈值）、`TVMAZE_OFF=1`（关闭 TVMaze 补充）、`TVMAZE_GAP_MS`（TVMaze 请求间隔，默认 550）、`TMDB_GAP_MS`（请求间隔）、`TMDB_CACHE_TTL_HOURS` / `TVMAZE_CACHE_TTL_HOURS`（缓存时长，默认 6）。
 - IndexNow 收录推送：key 存在 `site.config.json` 的 `indexNow.key`，构建时在站点根目录生成 `<key>.txt` 验证文件，每日部署完成后 `scripts/indexnow.js` 自动提交 sitemap 全部 URL。
 - 仓库变量 `SITE_URL`：换成自定义域名时设置，用于 canonical / sitemap / 订阅链接。
 

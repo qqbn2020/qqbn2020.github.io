@@ -745,7 +745,7 @@ function buildAbout() {
   <h2>这个站做什么</h2>
   <p>把每周的剧集更新与院线新片排期整理成一张日历：今天有什么可看、接下来一周排了什么、每部剧下一次更新在哪天。全部页面预渲染成静态文件，打开即读，不需要登录。</p>
   <h2>数据来源</h2>
-  <p>剧集与电影元数据、海报来自 <a href="https://www.themoviedb.org/" target="_blank" rel="noopener nofollow">TMDB</a>：剧集取每集首播日期，电影取院线上映日期。海报版权归各制片方与发行方所有。</p>
+  <p>剧集与电影元数据、海报来自 <a href="https://www.themoviedb.org/" target="_blank" rel="noopener nofollow">TMDB</a>：剧集取每集首播日期，电影取院线上映日期。播出排期另参考 <a href="https://www.tvmaze.com/" target="_blank" rel="noopener nofollow">TVMaze</a> 的美国电视节目表作补充与交叉校验，条目收录仍以 TMDB 数据为准。海报版权归各制片方与发行方所有。</p>
   <h2>更新方式</h2>
   <p>GitHub Actions 定时任务每天运行多次（北京时间 00:15 / 04:15 / 08:15 / 12:15 / 16:15 / 20:15），拉取最新排期后重新生成整站。</p>
   <h2>日期与时区</h2>
@@ -796,6 +796,9 @@ function icsEvent(e, host) {
     `UID:${e.id}@${host}`,
     `DTSTAMP:${DTSTAMP}`,
     `DTSTART;VALUE=DATE:${icsDate(e.date)}`,
+    // RFC 5545: DTEND is exclusive for all-day events → next day, or calendars
+    // that require DTEND render the event as zero-length
+    `DTEND;VALUE=DATE:${icsDate(addDays(e.date, 1))}`,
     `SUMMARY:${icsEscape(summary)}`,
     `DESCRIPTION:${icsEscape(`${e.platform}｜${e.overview || ''}`.slice(0, 300))}`,
     `CATEGORIES:${e.type === 'movie' ? '电影' : '剧集'}`,
@@ -904,13 +907,33 @@ function copyAssets() {
 }
 
 function build404() {
-  const body = `
-<section class="page-head">
+  // GitHub Pages serves 404.html from arbitrary depths — external CSS/JS with
+  // relative paths would 404 too, so this page stays fully self-contained
+  const html = `<!doctype html>
+<html lang="${CONFIG.lang}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>页面不存在 · ${esc(CONFIG.name)}</title>
+<meta name="robots" content="noindex">
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f7f8fb;color:#1a1c22;font:15px/1.6 -apple-system,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif}
+.box{text-align:center;padding:48px 24px}
+h1{font-size:22px;font-weight:500;margin:16px 0 8px}
+p{color:#5f5e5a;margin:0 0 24px}
+a{display:inline-block;padding:10px 24px;border:1px solid #d3d1c7;border-radius:10px;color:inherit;text-decoration:none}
+a:hover{border-color:#888780}
+</style>
+</head>
+<body>
+<div class="box">
   <h1>页面不存在</h1>
-  <p class="muted">可能是排期窗口已滚动，旧日期页面会被回收。</p>
-  <p><a class="btn" href="../index.html">回到首页</a></p>
-</section>`;
-  fs.writeFileSync(path.join(DIST, '404.html'), layout({ title: '404', desc: '页面不存在', body, root: './' }));
+  <p>可能是排期窗口已滚动，旧日期页面会被回收。</p>
+  <a href="/">回到首页</a>
+</div>
+</body>
+</html>`;
+  fs.writeFileSync(path.join(DIST, '404.html'), html);
 }
 
 /* ------------------------------------------------------------------ */

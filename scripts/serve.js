@@ -15,6 +15,12 @@ const TYPES = {
 http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]);
   let file = path.join(ROOT, p);
+  // block traversal: the resolved path must stay inside dist/
+  if (!path.resolve(file).startsWith(ROOT + path.sep) && path.resolve(file) !== ROOT) {
+    res.writeHead(403, { 'content-type': 'text/plain' });
+    res.end('403');
+    return;
+  }
   if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
   if (!fs.existsSync(file) && fs.existsSync(file + '.html')) file += '.html';
   if (!fs.existsSync(file)) {
