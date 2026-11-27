@@ -4,8 +4,16 @@
   "description": "剧集更新与院线新片的播出日历，每日自动更新。含今日可看、接下来一周排期、单片时间表与日历订阅。",
   "lang": "zh-CN",
   "timezone": "Asia/Shanghai",
-  "window": { "back": 3, "forward": 42 },
-  "genreBlock": ["Talk", "News", "Soap", "Game Show"],
+  "window": {
+    "back": 3,
+    "forward": 42
+  },
+  "genreBlock": [
+    "Talk",
+    "News",
+    "Soap",
+    "Game Show"
+  ],
   "maxDaysPerWindow": 18,
   "indexNow": {
     "key": "ff12f1e7558bd74c97aed556e6d30440"
@@ -24,5 +32,8 @@
   "attribution": {
     "tmdb": "This product uses the TMDB API but is not endorsed or certified by TMDB.",
     "tmdbZh": "本页面数据与海报图片来自 TMDB，本产品未获 TMDB 认可，也未与 TMDB 存在认证关系。"
+  },
+  "tvmaze": {
+    "enabled": true
   }
 }

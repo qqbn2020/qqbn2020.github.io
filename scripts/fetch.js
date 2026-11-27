@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { api, loadEnv, img, isoDate, isoDateInTZ, addDays, weekdayIndex, stats } from './tmdb.js';
+import { tvmazeApi, tvmazeStats } from './tvmaze.js';
 
 loadEnv();
 
@@ -35,6 +36,11 @@ const STRIP_MAX_DAYS = Number(process.env.STRIP_MAX_DAYS || CONFIG.maxDaysPerWin
 const US_NETWORKS = [2, 3, 6, 16, 19, 24, 30, 32, 34, 41, 43, 47, 49, 64, 65, 67, 71, 74, 76, 77, 88, 174, 213, 318, 453, 1024, 2739, 3353, 4330, 2552, 6631];
 // pages of the network-agnostic window discover (20 shows/page)
 const GLOBAL_WINDOW_PAGES = Number(process.env.GLOBAL_WINDOW_PAGES || 10);
+
+// TVMaze is a schedule SUPPLEMENT for US linear TV (one /schedule request per day
+// covers every network — no id enumeration). Set TVMAZE_OFF=1 or
+// site.config.json tvmaze.enabled=false to disable.
+const TVMAZE_ENABLED = !process.env.TVMAZE_OFF && CONFIG.tvmaze?.enabled !== false;
 
 const TODAY = process.env.FETCH_TODAY || isoDateInTZ(CONFIG.timezone || 'Asia/Shanghai');
 const START = addDays(TODAY, -BACK);
@@ -142,11 +148,30 @@ async function tvCandidates() {
   return ranked.slice(0, MAX_SHOWS);
 }
 
-async function collectShows(candidates) {
+/**
+ * Fetch shows from TMDB candidates.
+ *
+ * imdbIndex maps "tt..." imdb id → { tmdbId, name, stage, show } for every candidate
+ * that got far enough to load its detail (kept or dropped, and at which stage).
+ * It is the dedup bridge for TVMaze: schedule entries can only ever merge into
+ * or point at a TMDB show that already went through this pipeline — a TVMaze id
+ * can never create a second entry for the same series.
+ */
+async function collectShows(candidates, imdbIndex = new Map()) {
   const shows = [];
   for (const [i, c] of candidates.entries()) {
     try {
-      const detail = await api(`/tv/${c.id}`);
+      const detail = await api(`/tv/${c.id}`, { append_to_response: 'external_ids' });
+      const imdb = detail.external_ids?.imdb_id || '';
+      if (imdb && !imdbIndex.has(imdb)) {
+        imdbIndex.set(imdb, { tmdbId: detail.id, name: detail.name, stage: 'pending', show: null });
+      }
+      // keep drop() and the imdb index in sync — TVMaze respects drops (genre/language/
+      // country) but may resurrect prefilter/no-episodes/cap misses with schedule evidence
+      const fail = (stage, extra = '') => {
+        if (imdb && imdbIndex.has(imdb)) imdbIndex.get(imdb).stage = stage;
+        drop(stage, c.id, detail.name, extra);
+      };
       // Chinese-first: fall back to the English synopsis only when the zh translation is empty
       let overviewFallback = '';
       if (!detail.overview && detail.original_language === 'en') {
@@ -154,10 +179,10 @@ async function collectShows(candidates) {
       }
       const countries = detail.origin_country || [];
       // US-produced, English-language scripted / reality only
-      if (!countries.includes('US')) { drop('origin-country', c.id, detail.name, countries.join(',')); continue; }
-      if (detail.original_language !== 'en') { drop('language', c.id, detail.name, detail.original_language); continue; }
+      if (!countries.includes('US')) { fail('origin-country', countries.join(',')); continue; }
+      if (detail.original_language !== 'en') { fail('language', detail.original_language); continue; }
       if (GENRE_BLOCK.size && (detail.genres || []).some((g) => (GENRE_BLOCK_IDS.size ? GENRE_BLOCK_IDS.has(g.id) : GENRE_BLOCK.has(g.name.toLowerCase())))) {
-        drop('genre-block', c.id, detail.name, (detail.genres || []).map((g) => g.name).join(','));
+        fail('genre-block', (detail.genres || []).map((g) => g.name).join(','));
         continue;
       }
 
@@ -168,7 +193,7 @@ async function collectShows(candidates) {
       if (!c.windowHit) {
         const hints = [detail.next_episode_to_air?.air_date, detail.last_episode_to_air?.air_date, detail.last_air_date]
           .filter(Boolean);
-        if (!hints.some(inWindow)) { drop('prefilter', c.id, detail.name, hints.join(',')); continue; }
+        if (!hints.some(inWindow)) { fail('prefilter', hints.join(',')); continue; }
       }
 
       // keep the seasons most likely to hold in-window episodes: the two newest aired
@@ -199,13 +224,13 @@ async function collectShows(candidates) {
           });
         }
       }
-      if (!episodes.length) { drop('no-episodes', c.id, detail.name, `seasons checked: ${seasons.map((s) => s.season_number).join(',')}`); continue; }
+      if (!episodes.length) { fail('no-episodes', `seasons checked: ${seasons.map((s) => s.season_number).join(',')}`); continue; }
       // daily strips (game shows, daytime soaps) would flood the calendar, but a
       // full-season binge drop is legit — compare distinct days, not episode count
       const occupiedDays = new Set(episodes.map((e) => e.air_date)).size;
-      if (occupiedDays > STRIP_MAX_DAYS) { drop('strip-days', c.id, detail.name, `${occupiedDays} distinct days`); continue; }
+      if (occupiedDays > STRIP_MAX_DAYS) { fail('strip-days', `${occupiedDays} distinct days`); continue; }
 
-      shows.push({
+      const show = {
         id: detail.id,
         name: detail.name,
         original_name: detail.original_name,
@@ -221,13 +246,136 @@ async function collectShows(candidates) {
         homepage: detail.homepage || '',
         seasons: detail.number_of_seasons || 0,
         episodes,
-      });
+      };
+      if (imdb && imdbIndex.has(imdb)) {
+        const rec = imdbIndex.get(imdb);
+        rec.stage = 'kept';
+        rec.show = show;
+      }
+      shows.push(show);
     } catch (e) {
       drop('error', c.id, c.name || String(c.id), e.message);
     }
     if ((i + 1) % 20 === 0) log(`shows ${i + 1}/${candidates.length} → kept ${shows.length}`);
   }
   return shows;
+}
+
+/* ------------------------------------------------------------------ */
+/* TVMaze supplement                                                    */
+/* ------------------------------------------------------------------ */
+
+// One /schedule request per window day returns the full US linear-TV lineup for
+// that date across ALL networks — the same coverage the per-network discover loop
+// tries to approximate with a hand-maintained id list. Aggregated per TVMaze show.
+async function tvmazeScheduleGroups() {
+  const groups = new Map(); // tvmaze show id → aggregated schedule evidence
+  let events = 0;
+  let failedDays = 0;
+  for (let d = START; d <= END; d = addDays(d, 1)) {
+    let list;
+    try { list = await tvmazeApi('/schedule', { date: d, country: 'US' }); }
+    catch (e) { failedDays++; log(`tvmaze schedule ${d} failed: ${e.message}`); continue; }
+    for (const ev of list || []) {
+      const show = ev.show || {};
+      if (!show.id || ev.season === 0) continue; // specials are not calendar material
+      events++;
+      let g = groups.get(show.id);
+      if (!g) {
+        groups.set(show.id, g = {
+          tvmazeId: show.id,
+          name: show.name || '',
+          status: show.status || '',
+          imdb: (show.externals && show.externals.imdb) || '',
+          network: show.network?.name || show.webChannel?.name || '',
+          events: new Map(),
+        });
+      }
+      const key = `${ev.season}x${ev.number}`;
+      if (!g.events.has(key)) {
+        g.events.set(key, {
+          season: ev.season,
+          episode: ev.number,
+          name: ev.name && !/^tba$/i.test(ev.name.trim()) ? ev.name : '',
+          air_date: ev.airdate,
+          runtime: ev.runtime || null,
+          airtime: ev.airtime || null,
+        });
+      }
+    }
+  }
+  if (failedDays) log(`tvmaze: ${failedDays}/${Math.ceil((Date.parse(END) - Date.parse(START)) / 86400000) + 1} schedule days failed`);
+  log(`tvmaze: ${events} schedule events across ${groups.size} shows`);
+  return groups;
+}
+
+/**
+ * Reconcile TVMaze schedule evidence with the shows that already passed the TMDB
+ * pipeline. Dedup is structural: a TVMaze group only touches a show when the TVMaze
+ * imdb id matches the TMDB detail's imdb id, so the same series can never appear
+ * twice. TMDB dates stay authoritative — mismatches are recorded, not overwritten.
+ */
+function reconcileTvmaze(shows, groups, imdbIndex) {
+  const rep = { matched: 0, validated: 0, conflicts: [], added: [], respectedDrops: [], unmatched: 0, unmatchedNoImdb: 0 };
+  const byImdb = new Map();
+  for (const g of groups.values()) {
+    if (!g.imdb) { rep.unmatchedNoImdb++; continue; }
+    byImdb.set(g.imdb, g);
+  }
+  for (const [imdb, g] of byImdb) {
+    const rec = imdbIndex.get(imdb);
+    if (!rec) { rep.unmatched++; continue; }
+    if (rec.stage !== 'kept') {
+      // genre/language/country/strip drops stand even with schedule evidence —
+      // TVMaze must not resurrect what the TMDB pipeline rejected by policy
+      rep.respectedDrops.push({ name: g.name, imdb, stage: rec.stage });
+      continue;
+    }
+    rep.matched++;
+    for (const ev of g.events.values()) {
+      const existing = rec.show.episodes.find((e) => e.season === ev.season && e.episode === ev.episode);
+      if (existing) {
+        // schedule date equals canonical airdate → cross-validated; differs → rerun
+        // or a source disagreement; TMDB wins either way
+        if (existing.air_date === ev.air_date) rep.validated++;
+        else rep.conflicts.push({ name: rec.show.name, imdb, season: ev.season, episode: ev.episode, tmdb: existing.air_date, tvmaze: ev.air_date });
+      } else {
+        // (season, number) unknown to TMDB — TMDB hasn't caught up; adopt TVMaze's
+        // episode. TMDB dates for kept shows remain untouched.
+        rec.show.episodes.push({ ...ev, overview: '', still: '', vote: null, source: 'tvmaze' });
+        rep.added.push({ name: rec.show.name, season: ev.season, episode: ev.episode, date: ev.air_date });
+      }
+    }
+    rec.show.episodes.sort((a, b) => (a.air_date || '').localeCompare(b.air_date || '') || a.season - b.season || a.episode - b.episode);
+  }
+  return rep;
+}
+
+/**
+ * TVMaze groups that matched no TMDB candidate (idle on TMDB: candidate cap, stale
+ * pointers, or plain popularity misses). Resolve them to a TMDB id via the shared
+ * imdb id and let them run through the SAME pipeline — genre/country/language and
+ * strip filters still apply. Reruns self-destruct here: TMDB season data holds
+ * canonical (first-run) air dates, so a rerun-only show finds no in-window episode
+ * and drops out as no-episodes.
+ */
+async function tvmazeNewCandidates(groups, imdbIndex) {
+  const out = [];
+  const seenTmdb = new Set();
+  for (const g of groups.values()) {
+    if (!g.imdb) continue;
+    if (imdbIndex.has(g.imdb)) continue; // already known to the pipeline
+    let tmdb;
+    try {
+      tmdb = await api('/find/' + g.imdb, { external_source: 'imdb_id' });
+    } catch (e) { log(`tvmaze /find ${g.imdb} failed: ${e.message}`); continue; }
+    const hit = (tmdb.tv_results || [])[0];
+    if (!hit) continue;
+    if (seenTmdb.has(hit.id) || imdbIndex.get(g.imdb)?.tmdbId === hit.id) continue;
+    seenTmdb.add(hit.id);
+    out.push({ id: hit.id, popularity: hit.popularity || 0, name: hit.name || g.name, windowHit: true, srcs: ['tvmaze:schedule'] });
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -348,8 +496,29 @@ async function main() {
     };
     candidates = await tvCandidates();
     log(`tv candidates: ${candidates.length}`);
-    const shows = await collectShows(candidates);
+    const imdbIndex = new Map(); // imdb id → { tmdbId, name, stage, show } — TVMaze dedup bridge
+    const shows = await collectShows(candidates, imdbIndex);
     log(`shows kept: ${shows.length}`);
+
+    // TVMaze supplement: linear-TV schedule evidence → merge into kept shows and
+    // discover shows the TMDB candidate sources missed. Never creates its own
+    // entries — everything resolves back to a TMDB id via imdb, so no duplicates.
+    let tvmazeRep = null;
+    if (TVMAZE_ENABLED) {
+      const groups = await tvmazeScheduleGroups();
+      tvmazeRep = reconcileTvmaze(shows, groups, imdbIndex);
+      log(`tvmaze: matched=${tvmazeRep.matched} validated=${tvmazeRep.validated} added=${tvmazeRep.added.length} conflicts=${tvmazeRep.conflicts.length} respectedDrops=${tvmazeRep.respectedDrops.length} unmatched=${tvmazeRep.unmatched}`);
+      const newCands = await tvmazeNewCandidates(groups, imdbIndex);
+      log(`tvmaze: ${newCands.length} new candidates resolved via imdb`);
+      if (newCands.length) {
+        const extra = await collectShows(newCands, imdbIndex);
+        log(`tvmaze: ${extra.length}/${newCands.length} new shows passed the pipeline`);
+        shows.push(...extra);
+      }
+      tvmazeRep.requests = tvmazeStats.requests;
+      tvmazeRep.failures = tvmazeStats.failures;
+    }
+
     const movies = await collectMovies();
     log(`movies kept: ${movies.length}`);
     raw = {
@@ -372,6 +541,7 @@ async function main() {
       dropped,
       candidates_count: candidates.length,
       candidates: candidates.map((c) => ({ id: c.id, name: c.name, pop: Math.round(c.popularity), wh: c.windowHit, src: c.srcs })),
+      tvmaze: tvmazeRep,
     }, null, 2));
     log(`dropped: ${dropped.length} candidates rejected (data/dropped.json)`);
   }

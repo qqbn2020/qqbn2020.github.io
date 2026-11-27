@@ -8,6 +8,7 @@
 
 ```
 scripts/tmdb.js      TMDB v4 客户端（串行限速、429 退避、响应缓存）
+scripts/tvmaze.js    TVMaze 客户端（排期补充源，限 20 请求/10 秒）
 scripts/fetch.js     抓取 US 剧集剧集播出日期 + 美国院线电影 → data/raw.json
 scripts/build.js     归一化 + 预渲染整站 → dist/
 scripts/indexnow.js  部署后向 IndexNow（Bing 等）提交 sitemap URL
@@ -46,6 +47,7 @@ node scripts/build.js
 ## 抓取策略
 
 - 剧集候选：`/tv/on_the_air`（未来 7 天）+ `/tv/airing_today` + `/tv/popular` + 不限电视网的 `discover/tv`（按播出日期窗口、美区美语，10 页）+ 按美国主要电视网（ABC/CBS/NBC/Fox/HBO/Netflix/Apple TV+/Hulu/Paramount+ with Showtime 等 31 个 network id）逐个 `discover/tv` 补充长尾。网络清单仅为补充——窗口内美剧由全局 discover 兜底，不依赖清单完整性。
+- **TVMaze 补充源**（`site.config.json` → `tvmaze.enabled`，`TVMAZE_OFF=1` 可关）：对窗口内每天发一次 `/schedule?country=US`，覆盖全部美国线性频道，无电视网枚举问题。TVMaze **只提供排期证据，不产生独立条目**：通过 IMDb id 反查回 TMDB（`/find?external_source=imdb_id` + 详情页 `append_to_response=external_ids`），同一部剧最多只有一个 TMDB id 条目——已收录的剧做日期交叉校验（TMDB 日期为准，冲突记录进诊断）；TMDB 漏收的剧经完整管线（类型/国家/语言过滤照常）补录。TVMaze 排期中的重播因与 TMDB 首播日期对不上而被自然过滤，"已 Ended"重播剧会因窗口内无首播集自动落选。
 - 只保留美国出品、英语原声的剧集；脱口秀、新闻、肥皂剧、竞猜节目（`genreBlock`）直接排除；窗口内占用超过 `maxDaysPerWindow`（默认 18）个不同日期的每日栏目剧也排除（按占用日期数而非集数判断，全季 binge 上线不受影响）。
 - 逐剧取 `/tv/{id}` 与相关季度的 `/tv/{id}/season/{n}`。对非 discover 命中的剧，先用 `next_episode_to_air` / `last_episode_to_air` 预筛，避免为停播剧浪费请求；由窗口 discover 直接命中的剧**跳过预筛**——TMDB 的集指针常有滞后，不能以此否决已确认在窗口内播出的剧。季选择保留最近 3 季 + 集指针引用的季，并容忍新季缺失 `season.air_date`。窗口内（默认 今天-3 ~ 今天+42）的集保留，同一天同一部剧的多集合并成一张卡片（`S01E01–E08`）。
 - 电影：`/discover/movie`（region=US，release_type=2|3）+ `/movie/now_playing` + `/movie/upcoming`。
@@ -56,6 +58,7 @@ node scripts/build.js
 每次真实抓取都会生成 `data/dropped.json`（部署后可通过 `https://<域名>/data/dropped.json` 访问），记录每部剧被过滤的确切位置，用于排查"某剧为什么没收录"：
 
 - `candidates`：进入候选池的全部剧，含 `wh`（是否由播出窗口 discover 命中）与 `src`（候选来源列表，如 `discover:6631`、`discover:global`、`on_the_air`）。**剧不在这里 = 连候选都没进**，说明候选来源没覆盖到它。
+- `tvmaze`：TVMaze 补充源的运行报告——`matched`（与已收录剧对齐数）、`validated`（日期交叉验证一致数）、`conflicts`（两源日期不一致，TMDB 为准）、`added`（从 TVMaze 补进的集）、`respectedDrops`（有排期证据但被 TMDB 管线政策性排除的剧）、`unmatched`（未能反查到 TMDB id 的排期）。
 - `dropped`：被过滤的剧，`stage` 取值：`candidate-cap`（热度/优先级截断）、`origin-country` / `language`（非美区非英语）、`genre-block`（类型排除）、`prefilter`（集指针预筛）、`no-episodes`（季数据为空）、`strip-days`（每日栏目剧）、`error`（请求失败）。
 
 排查口诀：先查 `candidates` 里有没有这部剧 → 有则看它被丢在哪个 `stage` → 没有则说明候选来源缺失（新增电视网 id 或调大 `GLOBAL_WINDOW_PAGES`）。抓取日志还会输出 `candidates by source` 各来源命中计数，可直接观察某条来源通道是否失效。
