@@ -476,6 +476,7 @@ async function main() {
 
   let raw;
   let candidates = []; // kept at function scope for the dropped.json diagnostics write
+  let tvmazeRep = null; // ditto — TVMaze report goes into dropped.json from outside this block
   if (DEMO) {
     raw = demoRaw();
   } else {
@@ -503,7 +504,7 @@ async function main() {
     // TVMaze supplement: linear-TV schedule evidence → merge into kept shows and
     // discover shows the TMDB candidate sources missed. Never creates its own
     // entries — everything resolves back to a TMDB id via imdb, so no duplicates.
-    let tvmazeRep = null;
+    tvmazeRep = null;
     if (TVMAZE_ENABLED) {
       const groups = await tvmazeScheduleGroups();
       tvmazeRep = reconcileTvmaze(shows, groups, imdbIndex);
