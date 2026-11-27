@@ -28,8 +28,13 @@ const STRIP_MAX_DAYS = Number(process.env.STRIP_MAX_DAYS || CONFIG.maxDaysPerWin
 
 // TMDB network ids: broadcast + premium cable + streamers most relevant to a US calendar
 // 6631 = "Paramount+ with Showtime" — a separate TMDB entity from Showtime (67) and
-// Paramount+ (4330); missing it dropped whole streaming originals like Dexter: Resurrection
+// Paramount+ (4330); missing it dropped whole streaming originals like Dexter: Resurrection.
+// NOTE: this list is supplemental coverage for long-tail shows — the network-agnostic
+// window discover below finds every US show with an episode in the window regardless
+// of which TMDB network entity it belongs to.
 const US_NETWORKS = [2, 3, 6, 16, 19, 24, 30, 32, 34, 41, 43, 47, 49, 64, 65, 67, 71, 74, 76, 77, 88, 174, 213, 318, 453, 1024, 2739, 3353, 4330, 2552, 6631];
+// pages of the network-agnostic window discover (20 shows/page)
+const GLOBAL_WINDOW_PAGES = Number(process.env.GLOBAL_WINDOW_PAGES || 10);
 
 const TODAY = process.env.FETCH_TODAY || isoDateInTZ(CONFIG.timezone || 'Asia/Shanghai');
 const START = addDays(TODAY, -BACK);
@@ -105,8 +110,33 @@ async function tvCandidates() {
     }
   }
 
+  // 4) network-agnostic window discover — the safety net that makes the static
+  // US_NETWORKS list non-critical: any US show with an episode inside the window
+  // is found here even if its TMDB network entity is missing from the list.
+  for (let page = 1; page <= GLOBAL_WINDOW_PAGES; page++) {
+    try {
+      const r = await api('/discover/tv', {
+        with_origin_country: 'US',
+        with_original_language: 'en',
+        'air_date.gte': START,
+        'air_date.lte': END,
+        sort_by: 'popularity.desc',
+        page,
+      });
+      add(r.results, true, 'discover:global');
+      if (page >= (r.total_pages || 1)) break;
+    } catch (e) {
+      log('discover/tv global p' + page, e.message);
+      break;
+    }
+  }
+
   const ranked = [...seen.values()].sort((a, b) => b.popularity - a.popularity);
   for (const c of ranked.slice(MAX_SHOWS)) drop('candidate-cap', c.id, c.name || String(c.id));
+  // per-source candidate counts — watch these to notice when a source underperforms
+  const srcCounts = {};
+  for (const c of ranked) for (const s of c.srcs) srcCounts[s] = (srcCounts[s] || 0) + 1;
+  log('candidates by source: ' + JSON.stringify(srcCounts));
   return ranked.slice(0, MAX_SHOWS);
 }
 

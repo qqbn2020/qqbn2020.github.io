@@ -45,7 +45,7 @@ node scripts/build.js
 
 ## 抓取策略
 
-- 剧集候选：`/tv/on_the_air`（未来 7 天）+ `/tv/airing_today` + `/tv/popular` + 按美国主要电视网（ABC/CBS/NBC/Fox/HBO/Netflix/Apple TV+/Hulu/Paramount+ with Showtime 等 31 个 network id）逐个 `discover/tv`，按播出日期窗口过滤。
+- 剧集候选：`/tv/on_the_air`（未来 7 天）+ `/tv/airing_today` + `/tv/popular` + 不限电视网的 `discover/tv`（按播出日期窗口、美区美语，10 页）+ 按美国主要电视网（ABC/CBS/NBC/Fox/HBO/Netflix/Apple TV+/Hulu/Paramount+ with Showtime 等 31 个 network id）逐个 `discover/tv` 补充长尾。网络清单仅为补充——窗口内美剧由全局 discover 兜底，不依赖清单完整性。
 - 只保留美国出品、英语原声的剧集；脱口秀、新闻、肥皂剧、竞猜节目（`genreBlock`）直接排除；窗口内集数超过 `maxEpisodesPerWindow`（默认 12）的每日栏目剧也排除。
 - 逐剧取 `/tv/{id}` 与相关季度的 `/tv/{id}/season/{n}`，先用 `next_episode_to_air` / `last_episode_to_air` 预筛，只保留窗口内（默认 今天-3 ~ 今天+42）有播出日的集；同一天同一部剧的多集合并成一张卡片（`S01E01–E08`）。
 - 电影：`/discover/movie`（region=US，release_type=2|3）+ `/movie/now_playing` + `/movie/upcoming`。
