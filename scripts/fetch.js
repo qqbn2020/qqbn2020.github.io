@@ -295,6 +295,7 @@ async function main() {
   log(`window ${START} .. ${END} (today ${TODAY})${DEMO ? ' [DEMO]' : ''}`);
 
   let raw;
+  let candidates = []; // kept at function scope for the dropped.json diagnostics write
   if (DEMO) {
     raw = demoRaw();
   } else {
@@ -313,7 +314,7 @@ async function main() {
       tv: Object.fromEntries((genreTV.genres || []).map((g) => [g.id, g.name])),
       movie: Object.fromEntries((genreMovie.genres || []).map((g) => [g.id, g.name])),
     };
-    const candidates = await tvCandidates();
+    candidates = await tvCandidates();
     log(`tv candidates: ${candidates.length}`);
     const shows = await collectShows(candidates);
     log(`shows kept: ${shows.length}`);
@@ -361,5 +362,9 @@ async function main() {
 
 main().catch((err) => {
   console.error('FATAL', err);
+  // surface the reason as a workflow annotation — readable via the public checks API
+  // without admin log access
+  const msg = String((err && err.stack) || err).slice(0, 3500);
+  console.log(`::error title=fetch-fatal::${msg.replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A')}`);
   process.exit(1);
 });
