@@ -27,7 +27,9 @@ let GENRE_BLOCK_IDS = new Set();
 const STRIP_MAX_DAYS = Number(process.env.STRIP_MAX_DAYS || CONFIG.maxDaysPerWindow || 18);
 
 // TMDB network ids: broadcast + premium cable + streamers most relevant to a US calendar
-const US_NETWORKS = [2, 3, 6, 16, 19, 24, 30, 32, 34, 41, 43, 47, 49, 64, 65, 67, 71, 74, 76, 77, 88, 174, 213, 318, 453, 1024, 2739, 3353, 4330, 2552];
+// 6631 = "Paramount+ with Showtime" — a separate TMDB entity from Showtime (67) and
+// Paramount+ (4330); missing it dropped whole streaming originals like Dexter: Resurrection
+const US_NETWORKS = [2, 3, 6, 16, 19, 24, 30, 32, 34, 41, 43, 47, 49, 64, 65, 67, 71, 74, 76, 77, 88, 174, 213, 318, 453, 1024, 2739, 3353, 4330, 2552, 6631];
 
 const TODAY = process.env.FETCH_TODAY || isoDateInTZ(CONFIG.timezone || 'Asia/Shanghai');
 const START = addDays(TODAY, -BACK);
@@ -51,29 +53,33 @@ function log(...a) { console.log(new Date().toISOString().slice(11, 19), ...a); 
 async function tvCandidates() {
   const seen = new Map();
   // windowHit: the candidate came from a discover query already scoped to the air-date
-  // window, so a missing/stale next_episode_to_air later must not veto it
-  const add = (list = [], windowHit = false) => {
+  // window, so a missing/stale next_episode_to_air later must not veto it.
+  // srcs: which candidate sources found it (diagnostics).
+  const add = (list = [], windowHit = false, src = '') => {
     for (const s of list) {
       if (!s || !s.id) continue;
       const cur = seen.get(s.id);
-      if (!cur) seen.set(s.id, { id: s.id, popularity: s.popularity || 0, name: s.name, windowHit });
-      else if (windowHit) cur.windowHit = true;
+      if (!cur) seen.set(s.id, { id: s.id, popularity: s.popularity || 0, name: s.name, windowHit, srcs: [src] });
+      else {
+        if (windowHit) cur.windowHit = true;
+        if (src && !cur.srcs.includes(src)) cur.srcs.push(src);
+      }
     }
   };
 
   // 1) shows airing in the next 7 days / today — highest signal
   for (let page = 1; page <= 3; page++) {
-    try { add((await api('/tv/on_the_air', { page })).results); }
+    try { add((await api('/tv/on_the_air', { page })).results, false, 'on_the_air'); }
     catch (e) { log('on_the_air p' + page, e.message); }
   }
   for (let page = 1; page <= 2; page++) {
-    try { add((await api('/tv/airing_today', { page })).results); }
+    try { add((await api('/tv/airing_today', { page })).results, false, 'airing_today'); }
     catch (e) { log('airing_today p' + page, e.message); }
   }
 
   // 2) currently popular shows (covers returning series outside the 7-day window)
   for (let page = 1; page <= 4; page++) {
-    try { add((await api('/tv/popular', { page })).results); }
+    try { add((await api('/tv/popular', { page })).results, false, 'popular'); }
     catch (e) { log('popular p' + page, e.message); }
   }
 
@@ -90,7 +96,7 @@ async function tvCandidates() {
           sort_by: 'popularity.desc',
           page,
         });
-        add(r.results, true);
+        add(r.results, true, 'discover:' + network);
         if (page >= (r.total_pages || 1)) break;
       } catch (e) {
         log('discover/tv net' + network, e.message);
@@ -325,6 +331,8 @@ async function main() {
       window: raw.window,
       dropped_count: dropped.length,
       dropped,
+      candidates_count: candidates.length,
+      candidates: candidates.map((c) => ({ id: c.id, name: c.name, pop: Math.round(c.popularity), wh: c.windowHit, src: c.srcs })),
     }, null, 2));
     log(`dropped: ${dropped.length} candidates rejected (data/dropped.json)`);
   }
