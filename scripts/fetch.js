@@ -131,7 +131,9 @@ async function tvCandidates() {
     }
   }
 
-  const ranked = [...seen.values()].sort((a, b) => b.popularity - a.popularity);
+  // rank window hits first: with the candidate cap, a merely-popular idle show
+  // must never evict a show that provably airs inside the window
+  const ranked = [...seen.values()].sort((a, b) => (b.windowHit - a.windowHit) || (b.popularity - a.popularity));
   for (const c of ranked.slice(MAX_SHOWS)) drop('candidate-cap', c.id, c.name || String(c.id));
   // per-source candidate counts — watch these to notice when a source underperforms
   const srcCounts = {};
