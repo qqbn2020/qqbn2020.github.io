@@ -278,7 +278,7 @@ async function tvmazeScheduleGroups() {
     catch (e) { failedDays++; log(`tvmaze schedule ${d} failed: ${e.message}`); continue; }
     for (const ev of list || []) {
       const show = ev.show || {};
-      if (!show.id || ev.season === 0) continue; // specials are not calendar material
+      if (!show.id || ev.season === 0 || ev.number == null) continue; // specials & unnumbered TBA slots are not calendar material
       events++;
       let g = groups.get(show.id);
       if (!g) {
@@ -316,7 +316,7 @@ async function tvmazeScheduleGroups() {
  * twice. TMDB dates stay authoritative — mismatches are recorded, not overwritten.
  */
 function reconcileTvmaze(shows, groups, imdbIndex) {
-  const rep = { matched: 0, validated: 0, conflicts: [], added: [], respectedDrops: [], unmatched: 0, unmatchedNoImdb: 0 };
+  const rep = { matched: 0, validated: 0, conflicts: [], added: [], respectedDrops: [], unmatched: [], unmatchedNoImdb: 0, stripRolledBack: [] };
   const byImdb = new Map();
   for (const g of groups.values()) {
     if (!g.imdb) { rep.unmatchedNoImdb++; continue; }
@@ -324,7 +324,7 @@ function reconcileTvmaze(shows, groups, imdbIndex) {
   }
   for (const [imdb, g] of byImdb) {
     const rec = imdbIndex.get(imdb);
-    if (!rec) { rep.unmatched++; continue; }
+    if (!rec) { rep.unmatched.push({ name: g.name, imdb, network: g.network, status: g.status, events: g.events.size }); continue; }
     if (rec.stage !== 'kept') {
       // genre/language/country/strip drops stand even with schedule evidence —
       // TVMaze must not resurrect what the TMDB pipeline rejected by policy
@@ -347,6 +347,14 @@ function reconcileTvmaze(shows, groups, imdbIndex) {
       }
     }
     rec.show.episodes.sort((a, b) => (a.air_date || '').localeCompare(b.air_date || '') || a.season - b.season || a.episode - b.episode);
+    // strip guard: TVMaze merge happens after the pipeline's strip-days filter, so a
+    // daily show whose TMDB data held only a few dated episodes can flood the calendar
+    // here. Roll back the TVMaze additions when the merged set looks like a strip.
+    const occupiedDays = new Set(rec.show.episodes.map((e) => e.air_date)).size;
+    if (occupiedDays > STRIP_MAX_DAYS) {
+      rec.show.episodes = rec.show.episodes.filter((e) => e.source !== 'tvmaze');
+      rep.stripRolledBack.push({ name: rec.show.name, imdb, occupiedDays });
+    }
   }
   return rep;
 }
@@ -362,20 +370,29 @@ function reconcileTvmaze(shows, groups, imdbIndex) {
 async function tvmazeNewCandidates(groups, imdbIndex) {
   const out = [];
   const seenTmdb = new Set();
+  const diag = { lookup: 0, found: 0, notFoundCount: 0, notFound: [], errors: 0, resolved: [] };
   for (const g of groups.values()) {
     if (!g.imdb) continue;
     if (imdbIndex.has(g.imdb)) continue; // already known to the pipeline
+    diag.lookup++;
     let tmdb;
     try {
       tmdb = await api('/find/' + g.imdb, { external_source: 'imdb_id' });
-    } catch (e) { log(`tvmaze /find ${g.imdb} failed: ${e.message}`); continue; }
+    } catch (e) { diag.errors++; log(`tvmaze /find ${g.imdb} failed: ${e.message}`); continue; }
     const hit = (tmdb.tv_results || [])[0];
-    if (!hit) continue;
+    if (!hit) {
+      diag.notFoundCount++;
+      if (diag.notFound.length < 25) diag.notFound.push({ name: g.name, imdb: g.imdb, network: g.network, status: g.status });
+      continue;
+    }
+    diag.found++;
     if (seenTmdb.has(hit.id) || imdbIndex.get(g.imdb)?.tmdbId === hit.id) continue;
     seenTmdb.add(hit.id);
     out.push({ id: hit.id, popularity: hit.popularity || 0, name: hit.name || g.name, windowHit: true, srcs: ['tvmaze:schedule'] });
+    if (diag.resolved.length < 25) diag.resolved.push({ name: hit.name || g.name, imdb: g.imdb, tmdbId: hit.id });
   }
-  return out;
+  log(`tvmaze /find: ${diag.lookup} lookups → ${diag.found} found, ${diag.notFoundCount} not on TMDB, ${diag.errors} errors`);
+  return { out, diag };
 }
 
 /* ------------------------------------------------------------------ */
@@ -508,14 +525,15 @@ async function main() {
     if (TVMAZE_ENABLED) {
       const groups = await tvmazeScheduleGroups();
       tvmazeRep = reconcileTvmaze(shows, groups, imdbIndex);
-      log(`tvmaze: matched=${tvmazeRep.matched} validated=${tvmazeRep.validated} added=${tvmazeRep.added.length} conflicts=${tvmazeRep.conflicts.length} respectedDrops=${tvmazeRep.respectedDrops.length} unmatched=${tvmazeRep.unmatched}`);
-      const newCands = await tvmazeNewCandidates(groups, imdbIndex);
+      log(`tvmaze: matched=${tvmazeRep.matched} validated=${tvmazeRep.validated} added=${tvmazeRep.added.length} conflicts=${tvmazeRep.conflicts.length} respectedDrops=${tvmazeRep.respectedDrops.length} stripRolledBack=${tvmazeRep.stripRolledBack.length} unmatched=${tvmazeRep.unmatched.length}`);
+      const { out: newCands, diag: findDiag } = await tvmazeNewCandidates(groups, imdbIndex);
       log(`tvmaze: ${newCands.length} new candidates resolved via imdb`);
       if (newCands.length) {
         const extra = await collectShows(newCands, imdbIndex);
         log(`tvmaze: ${extra.length}/${newCands.length} new shows passed the pipeline`);
         shows.push(...extra);
       }
+      tvmazeRep.find = findDiag;
       tvmazeRep.requests = tvmazeStats.requests;
       tvmazeRep.failures = tvmazeStats.failures;
     }
