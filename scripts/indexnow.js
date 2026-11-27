@@ -29,30 +29,34 @@ if (!SITE_URL) { warn('SITE_URL missing — skipped'); process.exit(0); }
 const host = new URL(SITE_URL).host;
 const keyLocation = `${SITE_URL}/${KEY}.txt`;
 
-// IndexNow validates ownership by fetching keyLocation — check it first
-const check = await fetch(keyLocation);
-if (!check.ok || !(await check.text()).trim().startsWith(KEY)) {
-  warn(`key file not live yet at ${keyLocation} — skipped, will retry next run`);
-  process.exit(0);
-}
-log(`key file verified: ${keyLocation}`);
+// everything below is best effort — an IndexNow hiccup must never fail the deploy
+try {
+  const check = await fetch(keyLocation);
+  if (!check.ok || !(await check.text()).trim().startsWith(KEY)) {
+    warn(`key file not live yet at ${keyLocation} — skipped, will retry next run`);
+    process.exit(0);
+  }
+  log(`key file verified: ${keyLocation}`);
 
-const res = await fetch(`${SITE_URL}/sitemap.xml`);
-if (!res.ok) { warn(`sitemap fetch failed HTTP ${res.status} — skipped`); process.exit(0); }
-const urls = [...(await res.text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-if (!urls.length) { warn('sitemap has no <loc> entries — skipped'); process.exit(0); }
+  const res = await fetch(`${SITE_URL}/sitemap.xml`);
+  if (!res.ok) { warn(`sitemap fetch failed HTTP ${res.status} — skipped`); process.exit(0); }
+  const urls = [...(await res.text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  if (!urls.length) { warn('sitemap has no <loc> entries — skipped'); process.exit(0); }
 
-// protocol limit: 10,000 URLs per submission
-const urlList = urls.slice(0, 10000);
-const submit = await fetch('https://api.indexnow.org/IndexNow', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json; charset=utf-8' },
-  body: JSON.stringify({ host, key, keyLocation, urlList }),
-});
+  // protocol limit: 10,000 URLs per submission
+  const urlList = urls.slice(0, 10000);
+  const submit = await fetch('https://api.indexnow.org/IndexNow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ host, key: KEY, keyLocation, urlList }),
+  });
 
-if (submit.status === 200 || submit.status === 202) {
-  log(`submitted ${urlList.length} urls to ${host} → HTTP ${submit.status}`);
-} else {
-  warn(`submission rejected HTTP ${submit.status}: ${(await submit.text().catch(() => '')).slice(0, 200)}`);
+  if (submit.status === 200 || submit.status === 202) {
+    log(`submitted ${urlList.length} urls to ${host} → HTTP ${submit.status}`);
+  } else {
+    warn(`submission rejected HTTP ${submit.status}: ${(await submit.text().catch(() => '')).slice(0, 200)}`);
+  }
+} catch (err) {
+  warn('unexpected error, skipped:', err?.message || err);
 }
 process.exit(0);
