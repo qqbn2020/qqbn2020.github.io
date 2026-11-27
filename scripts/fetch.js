@@ -333,15 +333,19 @@ function reconcileTvmaze(shows, groups, imdbIndex) {
     }
     rep.matched++;
     for (const ev of g.events.values()) {
-      const existing = rec.show.episodes.find((e) => e.season === ev.season && e.episode === ev.episode);
+      // match by (season, episode) first; TVMaze and TMDB sometimes use different
+      // numbering schemes (e.g. year-based seasons for strips) — a same-date episode
+      // in TMDB is the same airing, never a second one
+      const existing = rec.show.episodes.find((e) => e.season === ev.season && e.episode === ev.episode)
+        || rec.show.episodes.find((e) => e.air_date === ev.air_date);
       if (existing) {
         // schedule date equals canonical airdate → cross-validated; differs → rerun
         // or a source disagreement; TMDB wins either way
         if (existing.air_date === ev.air_date) rep.validated++;
         else rep.conflicts.push({ name: rec.show.name, imdb, season: ev.season, episode: ev.episode, tmdb: existing.air_date, tvmaze: ev.air_date });
       } else {
-        // (season, number) unknown to TMDB — TMDB hasn't caught up; adopt TVMaze's
-        // episode. TMDB dates for kept shows remain untouched.
+        // nothing aired on that date per TMDB — TMDB hasn't caught up; adopt
+        // TVMaze's episode. TMDB dates for kept shows remain untouched.
         rec.show.episodes.push({ ...ev, overview: '', still: '', vote: null, source: 'tvmaze' });
         rep.added.push({ name: rec.show.name, season: ev.season, episode: ev.episode, date: ev.air_date });
       }
